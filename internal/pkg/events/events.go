@@ -1,1 +1,11 @@
 package events
+
+const (
+	BEACON int = iota
+	BUY
+	REQUEST_VOTE
+	REPLY_VOTE
+	DECLARE_VICTORY
+	INFORM_WINNER
+	TRANSACTION_END
+)

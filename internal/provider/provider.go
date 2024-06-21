@@ -5,32 +5,15 @@ import (
 	"fmt"
 	"net"
 	"time"
+	"wifi-trade-consensus/internal/pkg/events"
+	"wifi-trade-consensus/internal/pkg/payload"
 
 	"github.com/google/uuid"
 )
 
-type PayloadType int
+type PayloadMeta = payload.Meta
 
-const (
-	BEACON int = iota
-	BUY
-	REQUEST_VOTE
-	REPLY_VOTE
-	DECLARE_VICTORY
-	INFORM_WINNER
-	TRANSACTION_END
-)
-
-type PayloadMeta struct {
-	PayloadType   int       `json:"type"`
-	TransactionID uuid.UUID `json:"transaction_id"`
-	OriginID      uuid.UUID `json:"origin_id"`
-	OriginAddress string    `json:"origin_address"`
-	// Size                  int       `json:"size"`
-	// Utilization           int       `json:"utilization"`
-}
-
-type BuyPayload struct {
+type buyPayload struct {
 	PayloadMeta
 	PeerList peers `json:"peer_list"`
 }
@@ -111,7 +94,7 @@ func (p *Provider) NewListener(option options) error {
 		go func(c net.Conn) {
 			defer c.Close()
 
-			payloadMeta := PayloadMeta{}
+			payloadMeta := payload.Meta{}
 			d := json.NewDecoder(c)
 			err := d.Decode(&payloadMeta)
 			if err != nil {
@@ -121,11 +104,11 @@ func (p *Provider) NewListener(option options) error {
 			fmt.Printf("received payload meta from %s: %v\n", c.RemoteAddr(), payloadMeta)
 
 			switch payloadMeta.PayloadType {
-			case BEACON:
+			case events.BEACON:
 
 			// Handle BUY event
-			case BUY:
-				buyPayload := BuyPayload{}
+			case events.BUY:
+				buyPayload := buyPayload{}
 				if err := d.Decode(&buyPayload); err != nil {
 					fmt.Printf("failed to decode BUY payload from %s: %w\n", c.RemoteAddr().String(), err)
 					return
@@ -134,7 +117,7 @@ func (p *Provider) NewListener(option options) error {
 				p.handleBuyEvent(buyPayload)
 
 			// Handle REQUEST_VOTE event
-			case REQUEST_VOTE:
+			case events.REQUEST_VOTE:
 				requestVotePayload := requestVotePayload{}
 				if err := d.Decode(&requestVotePayload); err != nil {
 					fmt.Printf("failed to decode REQUEST_VOTE payload from %s: %w\n", c.RemoteAddr().String(), err)
@@ -144,7 +127,7 @@ func (p *Provider) NewListener(option options) error {
 				p.handleRequestVote(requestVotePayload)
 
 			// Handle REPLY_VOTE event
-			case REPLY_VOTE:
+			case events.REPLY_VOTE:
 				replyVotePayload := replyVotePayload{}
 				if err := d.Decode(&replyVotePayload); err != nil {
 					fmt.Printf("failed to decode REPLY_VOTE payload from %s: %w\n", c.RemoteAddr().String(), err)

@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+
+	"wifi-trade-consensus/internal/pkg/events"
 )
 
 // Handle BUY event and respond by sending REQUEST_VOTE event
-func (p *Provider) handleBuyEvent(payload BuyPayload) {
+func (p *Provider) handleBuyEvent(payload buyPayload) {
 	for _, peer := range payload.PeerList {
 		go func(peer peerInfo) {
 			conn, err := net.Dial("tcp", peer.address)
@@ -32,7 +34,7 @@ func (p *Provider) handleBuyEvent(payload BuyPayload) {
 			// Build response
 			response := requestVotePayload{
 				PayloadMeta: PayloadMeta{
-					PayloadType:   REQUEST_VOTE,
+					PayloadType:   events.REQUEST_VOTE,
 					TransactionID: payload.TransactionID,
 				},
 				CandidateID: p.id,
@@ -66,7 +68,7 @@ func (p *Provider) handleRequestVote(payload requestVotePayload) {
 	// Build response
 	response := replyVotePayload{
 		PayloadMeta: PayloadMeta{
-			PayloadType:   REQUEST_VOTE,
+			PayloadType:   events.REQUEST_VOTE,
 			TransactionID: payload.TransactionID,
 		},
 		Decision: decision,
@@ -115,7 +117,7 @@ func (p *Provider) handleReplyVote(payload replyVotePayload) {
 	// Build response
 	response := declareVictoryPayload{
 		PayloadMeta: PayloadMeta{
-			PayloadType:   REQUEST_VOTE,
+			PayloadType:   events.REQUEST_VOTE,
 			TransactionID: payload.TransactionID,
 		},
 		votes: votes,
@@ -156,7 +158,7 @@ func (p *Provider) handleDeclareVictory(payload declareVictoryPayload) {
 	// Build response
 	response := informWinnerPayload{
 		PayloadMeta: PayloadMeta{
-			PayloadType:   INFORM_WINNER,
+			PayloadType:   events.INFORM_WINNER,
 			TransactionID: payload.TransactionID,
 			OriginID:      p.id,
 			OriginAddress: p.address,
