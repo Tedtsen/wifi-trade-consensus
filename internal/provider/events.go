@@ -4,12 +4,58 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"time"
 
 	"wifi-trade-consensus/internal/pkg/events"
 )
 
+func (p *Provider) handleBeaconPayload(payload beaconPayload) {
+	currentTimestampMS := time.Now().UnixMilli()
+
+	entry, exists := p.peerScoreMatrix[payload.OriginID.String()]
+	if !exists {
+		p.peerScoreMatrix[payload.OriginID.String()] = peerScore{
+			uptime:         calculateUptime(currentTimestampMS, currentTimestampMS, p.params.kUptime),
+			signalStrength: calculateSignalStrength(payload.RSSI, p.params.kStrength),
+			load:           calculateLoad(payload.ChannelUtilizationRate, p.params.kLoad),
+			beaconTimestamps: beaconTimestamps{
+				initial: currentTimestampMS,
+				last:    currentTimestampMS,
+			},
+		}
+		return
+	}
+
+	// Check if T_{n+1} - T_{n} > T_{limit}
+	T_0 := &entry.beaconTimestamps.initial
+	T_n := &entry.beaconTimestamps.last
+	T_n1 := currentTimestampMS
+	T_limit := p.params.beaconTLimit
+
+	if T_n1-*T_n > T_limit {
+		*T_0 = T_n1
+		*T_n = T_n1
+	}
+
+	entry.uptime = calculateUptime(*T_0, T_n1, p.params.kUptime)
+	entry.signalStrength = calculateSignalStrength(payload.RSSI, p.params.kStrength)
+	entry.load = calculateLoad(payload.ChannelUtilizationRate, p.params.kLoad)
+	p.peerScoreMatrix[payload.OriginID.String()] = entry
+}
+
 // Handle BUY event and respond by sending REQUEST_VOTE event
 func (p *Provider) handleBuyEvent(payload buyPayload) {
+	// Init new transaction record
+	p.transactions[payload.TransactionID.String()] = transaction{
+		transactionID:   payload.TransactionID,
+		transactionTime: time.Now().UnixMilli(),
+		consumerID:      payload.OriginID,
+		consumerAddress: payload.OriginAddress,
+		peerList:        payload.PeerList,
+		peerCount:       len(payload.PeerList),
+		customerQOS:     payload.customerQOS,
+	}
+
 	for _, peer := range payload.PeerList {
 		go func(peer peerInfo) {
 			conn, err := net.Dial("tcp", peer.address)
@@ -18,18 +64,6 @@ func (p *Provider) handleBuyEvent(payload buyPayload) {
 				return
 			}
 			defer conn.Close()
-
-			// Init new transaction record
-			p.transactions[payload.TransactionID.String()] = transaction{
-				transactionID:   payload.TransactionID,
-				consumerID:      payload.OriginID,
-				consumerAddress: payload.OriginAddress,
-				peerList:        payload.PeerList,
-				peerCount:       len(payload.PeerList),
-				votes: votes{
-					p.id.String(): true,
-				},
-			}
 
 			// Build response
 			response := requestVotePayload{
@@ -63,7 +97,16 @@ func (p *Provider) handleRequestVote(payload requestVotePayload) {
 	}
 	defer conn.Close()
 
-	decision, err := p.decideVote(peerInfo{})
+	transaction, exists := p.transactions[payload.TransactionID.String()]
+	if !exists {
+		fmt.Printf("transaction doesn't exist: %s", payload.TransactionID.String())
+		return
+	}
+
+	FFS := p.calculateFFS(transaction)
+
+	// Save FFS calculation to current transaction's allFFS, indexed with self id
+	p.transactions[payload.TransactionID.String()].allFFS[p.id.String()] = FFS
 
 	// Build response
 	response := replyVotePayload{
@@ -71,7 +114,7 @@ func (p *Provider) handleRequestVote(payload requestVotePayload) {
 			PayloadType:   events.REQUEST_VOTE,
 			TransactionID: payload.TransactionID,
 		},
-		Decision: decision,
+		FFS: FFS,
 	}
 
 	// Send REPLY_VOTE event
@@ -87,43 +130,40 @@ func (p *Provider) handleRequestVote(payload requestVotePayload) {
 }
 
 func (p *Provider) handleReplyVote(payload replyVotePayload) {
-
 	transactionID := payload.TransactionID.String()
-	voterID := payload.OriginID.String()
 
-	p.transactions[transactionID].votes[voterID] = payload.Decision
-	// Create copy
-	votes := p.transactions[transactionID].votes
 	peerCount := p.transactions[transactionID].peerCount
 	peerList := p.transactions[transactionID].peerList
+	peerID := payload.OriginID.String()
 
-	// If not all voted
-	if len(votes) < peerCount {
+	// Save current FFS to allFFS
+	p.transactions[transactionID].allFFS[peerID] = payload.FFS
+	allFFS := p.transactions[transactionID].allFFS
+
+	// If haven't received all FFS yet
+	if len(allFFS) < peerCount {
 		// TODO: create new goroutine with timeout to send
 		return
 	}
 
-	votedForCount := 0
-	for _, vote := range votes {
-		if vote == true {
-			votedForCount++
-		}
-	}
-	// If all voted but VOTED_FOR count is less than (n/2 + 1)
-	if votedForCount < (peerCount/2 + 1) {
+	transaction, exists := p.transactions[payload.TransactionID.String()]
+	if !exists {
+		fmt.Printf("transaction doesn't exist: %s", payload.TransactionID.String())
 		return
 	}
 
+	FFSnew := p.calculateFFSnew(transaction.peerList, transaction.allFFS)
+
 	// Build response
-	response := declareVictoryPayload{
+	response := informVotePayload{
 		PayloadMeta: PayloadMeta{
 			PayloadType:   events.REQUEST_VOTE,
 			TransactionID: payload.TransactionID,
 		},
-		votes: votes,
+		FFSnew: FFSnew,
 	}
 
-	// Send DECLARE_VICTORY event to all peers concurrently
+	// Send INFORM_VOTE event to all peers concurrently
 	for _, peer := range peerList {
 		go func(peer peerInfo) {
 			conn, err := net.Dial("tcp", peer.address)
@@ -139,41 +179,22 @@ func (p *Provider) handleReplyVote(payload replyVotePayload) {
 				return
 			}
 			if _, err = fmt.Fprint(conn, string(jsonResponse)); err != nil {
-				fmt.Printf("failed to send DECLARE_VICTORY from %s to address %s\n", p.id, peer.address)
+				fmt.Printf("failed to send INFORM_VOTE from %s to address %s\n", p.id, peer.address)
 				return
 			}
 		}(peer)
 	}
 }
 
-func (p *Provider) handleDeclareVictory(payload declareVictoryPayload) {
-	consumerAddress := p.transactions[payload.TransactionID.String()].consumerAddress
-	conn, err := net.Dial("tcp", consumerAddress)
-	if err != nil {
-		fmt.Printf("failed to dial remote consumer: %v\n", err)
-		return
-	}
-	defer conn.Close()
+func (p *Provider) handleTransactionEnd(payload transactionEndPayload) {
+	// consumerAddress := p.transactions[payload.TransactionID.String()].consumerAddress
+	// conn, err := net.Dial("tcp", consumerAddress)
+	// if err != nil {
+	// 	fmt.Printf("failed to dial remote consumer: %v\n", err)
+	// 	return
+	// }
+	// defer conn.Close()
 
-	// Build response
-	response := informWinnerPayload{
-		PayloadMeta: PayloadMeta{
-			PayloadType:   events.INFORM_WINNER,
-			TransactionID: payload.TransactionID,
-			OriginID:      p.id,
-			OriginAddress: p.address,
-		},
-		winnerID: payload.OriginID,
-	}
+	// TODO
 
-	// Send INFORM_WINNER event to consumer
-	jsonResponse, err := json.Marshal(response)
-	if err != nil {
-		fmt.Printf("failed to marshal payload: %v\n", err)
-		return
-	}
-	if _, err = fmt.Fprint(conn, string(jsonResponse)); err != nil {
-		fmt.Printf("failed to send INFORM_WINNER from %s to address %s\n", p.id, consumerAddress)
-		return
-	}
 }
