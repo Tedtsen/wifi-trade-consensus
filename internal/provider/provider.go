@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"time"
 	"wifi-trade-consensus/internal/pkg/events"
 	"wifi-trade-consensus/internal/pkg/payload"
 
@@ -138,7 +137,7 @@ type Provider struct {
 // 	return &params, nil
 // }
 
-func NewParamsOptionsFromConfig() (*options, error) {
+func NewParamsOptionsFromConfigFile() (*options, error) {
 	params := params{}
 	options := options{}
 
@@ -292,38 +291,4 @@ func (p *Provider) NewListener() error {
 			}
 		}(conn)
 	}
-}
-
-func NewBeaconEmitter(peerList peers, interval int) {
-	// Run emitter concurrently
-	go func() {
-		for {
-			// Wait for beacon interval
-			time.Sleep(time.Millisecond * time.Duration(interval))
-			for _, peer := range peerList {
-				// fmt.Println("sending beacon to:", peer.address)
-				conn, err := net.Dial("tcp", peer.address)
-				if err != nil {
-					fmt.Printf("failed to send beacon to %s: %v\n", peer.address, err)
-					continue
-				}
-
-				// Send beacon to each peer concurrently
-				go func() {
-					fmt.Fprint(conn, "test\n")
-				}()
-			}
-		}
-	}()
-}
-
-func NewMockPeerList(addresses []string) peers {
-	peers := peers{}
-	for _, address := range addresses {
-		peers = append(peers, peerInfo{
-			providerID: "mock-id",
-			address:    address,
-		})
-	}
-	return peers
 }
