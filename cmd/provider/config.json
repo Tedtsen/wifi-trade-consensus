@@ -1,0 +1,12 @@
+{
+    "address": "localhost:8080",
+    "price": 0.0000007,
+    "uplink_speed": 30,
+    "downlink_speed": 100,
+    "beacon_t_limit": 110,
+    "k_uptime": 0.5,
+    "k_load": 0.5,
+    "k_strength": 0.5,
+    "tau": 3,
+    "default_peer_ff": 0
+}

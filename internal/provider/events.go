@@ -15,9 +15,9 @@ func (p *Provider) handleBeaconPayload(payload beaconPayload) {
 	entry, exists := p.peerScoreMatrix[payload.OriginID.String()]
 	if !exists {
 		p.peerScoreMatrix[payload.OriginID.String()] = peerScore{
-			uptime:         calculateUptime(currentTimestampMS, currentTimestampMS, p.params.kUptime),
-			signalStrength: calculateSignalStrength(payload.RSSI, p.params.kStrength),
-			load:           calculateLoad(payload.ChannelUtilizationRate, p.params.kLoad),
+			uptime:         calculateUptime(currentTimestampMS, currentTimestampMS, p.params.KUptime),
+			signalStrength: calculateSignalStrength(payload.RSSI, p.params.KStrength),
+			load:           calculateLoad(payload.ChannelUtilizationRate, p.params.KLoad),
 			beaconTimestamps: beaconTimestamps{
 				initial: currentTimestampMS,
 				last:    currentTimestampMS,
@@ -30,16 +30,16 @@ func (p *Provider) handleBeaconPayload(payload beaconPayload) {
 	T_0 := &entry.beaconTimestamps.initial
 	T_n := &entry.beaconTimestamps.last
 	T_n1 := currentTimestampMS
-	T_limit := p.params.beaconTLimit
+	T_limit := p.params.BeaconTLimit
 
 	if T_n1-*T_n > T_limit {
 		*T_0 = T_n1
 		*T_n = T_n1
 	}
 
-	entry.uptime = calculateUptime(*T_0, T_n1, p.params.kUptime)
-	entry.signalStrength = calculateSignalStrength(payload.RSSI, p.params.kStrength)
-	entry.load = calculateLoad(payload.ChannelUtilizationRate, p.params.kLoad)
+	entry.uptime = calculateUptime(*T_0, T_n1, p.params.KUptime)
+	entry.signalStrength = calculateSignalStrength(payload.RSSI, p.params.KStrength)
+	entry.load = calculateLoad(payload.ChannelUtilizationRate, p.params.KLoad)
 	p.peerScoreMatrix[payload.OriginID.String()] = entry
 }
 

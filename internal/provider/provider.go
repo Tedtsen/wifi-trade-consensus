@@ -9,6 +9,7 @@ import (
 	"wifi-trade-consensus/internal/pkg/payload"
 
 	"github.com/google/uuid"
+	"github.com/spf13/viper"
 )
 
 type PayloadMeta = payload.Meta
@@ -64,15 +65,6 @@ type informWinnerPayload struct {
 	winnerID uuid.UUID
 }
 
-type params struct {
-	beaconTLimit  int64   // 0 < beaconTLimit (ms) < 1000
-	kUptime       float64 // 0 < kUptime < 1
-	kLoad         float64 // 0 < kLoad < 1
-	kStrength     float64 // 0 < kStrength < 1
-	tau           float64 // z-score threshold
-	defaultPeerFF float64 // -1 < defaultPeerFF < 1
-}
-
 type peerInfo struct {
 	providerID string
 	address    string
@@ -93,6 +85,23 @@ type transaction struct {
 
 type transactions map[string]transaction
 
+type params struct {
+	BeaconTLimit  int64   `mapstructure:"beacon_t_limit"`  // 0 < beaconTLimit (ms) < 1000
+	KUptime       float64 `mapstructure:"k_uptime"`        // 0 < kUptime < 1
+	KLoad         float64 `mapstructure:"k_load"`          // 0 < kLoad < 1
+	KStrength     float64 `mapstructure:"k_strength"`      // 0 < kStrength < 1
+	Tau           float64 `mapstructure:"tau"`             // z-score threshold
+	DefaultPeerFF float64 `mapstructure:"default_peer_ff"` // -1 < defaultPeerFF < 1
+}
+
+type options struct {
+	Address       string  `mapstructure:"address"`
+	Price         float64 `mapstructure:"price"`
+	UplinkSpeed   float64 `mapstructure:"uplink_speed"`
+	DownlinkSpeed float64 `mapstructure:"downlink_speed"`
+	Params        params  `mapstructure:"params"`
+}
+
 type Provider struct {
 	id              uuid.UUID
 	address         string
@@ -104,43 +113,94 @@ type Provider struct {
 	transactions    transactions
 }
 
-type options struct {
-	address       string
-	price         float64
-	uplinkSpeed   float64
-	downlinkSpeed float64
-	params        params
+// func NewParamsFromConfig() (*params, error) {
+// 	params := params{}
+
+// 	viper.SetConfigName("config") // Name of config file (without extension)
+// 	viper.SetConfigType("json")   // REQUIRED if the config file does not have the extension in the name
+// 	viper.AddConfigPath(".")      // Path to look for the config file in
+
+// 	if err := viper.ReadInConfig(); err != nil {
+// 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+// 			// config not found, ignore err
+// 			return nil, fmt.Errorf("config file not found")
+// 		} else {
+// 			// other errors, ignore err
+// 			return nil, fmt.Errorf("failed to read config file: %w", err)
+// 		}
+// 	}
+
+// 	err := viper.Unmarshal(&params)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to unmarshal config file: %w", err)
+// 	}
+
+// 	return &params, nil
+// }
+
+func NewParamsOptionsFromConfig() (*options, error) {
+	params := params{}
+	options := options{}
+
+	viper.SetConfigName("config") // Name of config file (without extension)
+	viper.SetConfigType("json")   // REQUIRED if the config file does not have the extension in the name
+	viper.AddConfigPath(".")      // Path to look for the config file in
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			// config not found, ignore err
+			return nil, fmt.Errorf("config file not found")
+		} else {
+			// other errors, ignore err
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+	}
+
+	err := viper.Unmarshal(&params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal params config file: %w", err)
+	}
+
+	err = viper.Unmarshal(&options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal options config file: %w", err)
+	}
+
+	options.Params = params
+
+	return &options, nil
+
 }
 
 func NewParams(beaconTLimit int64, kUptime float64, kLoad float64, kStrength float64, tau float64, defaultPeerFF float64) params {
 	return params{
-		beaconTLimit:  beaconTLimit,
-		kUptime:       kUptime,
-		kLoad:         kLoad,
-		kStrength:     kStrength,
-		tau:           tau,
-		defaultPeerFF: defaultPeerFF,
+		BeaconTLimit:  beaconTLimit,
+		KUptime:       kUptime,
+		KLoad:         kLoad,
+		KStrength:     kStrength,
+		Tau:           tau,
+		DefaultPeerFF: defaultPeerFF,
 	}
 }
 
 func NewOptions(address string, price float64, uplinkSpeed float64, downlinkSpeed float64, params params) options {
 	return options{
-		address:       address,
-		price:         price,
-		uplinkSpeed:   uplinkSpeed,
-		downlinkSpeed: downlinkSpeed,
-		params:        params,
+		Address:       address,
+		Price:         price,
+		UplinkSpeed:   uplinkSpeed,
+		DownlinkSpeed: downlinkSpeed,
+		Params:        params,
 	}
 }
 
 func New(opt options) Provider {
 	return Provider{
 		id:            uuid.New(),
-		address:       opt.address,
-		price:         opt.price,
-		uplinkSpeed:   opt.uplinkSpeed,
-		downlinkSpeed: opt.downlinkSpeed,
-		params:        opt.params,
+		address:       opt.Address,
+		price:         opt.Price,
+		uplinkSpeed:   opt.UplinkSpeed,
+		downlinkSpeed: opt.DownlinkSpeed,
+		params:        opt.Params,
 	}
 }
 
@@ -244,7 +304,7 @@ func NewBeaconEmitter(peerList peers, interval int) {
 				// fmt.Println("sending beacon to:", peer.address)
 				conn, err := net.Dial("tcp", peer.address)
 				if err != nil {
-					fmt.Printf("failed to send beacon to %s: %v", peer.address, err)
+					fmt.Printf("failed to send beacon to %s: %v\n", peer.address, err)
 					continue
 				}
 

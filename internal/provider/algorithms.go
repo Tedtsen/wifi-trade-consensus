@@ -47,13 +47,13 @@ func (p *Provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS al
 	// Calculate FFnew
 	sampleN := 0
 	FFnew := 0.0
-	if calculateZScore(selfTargetPeerFF, FFmu, FFsigma) <= p.params.tau {
+	if calculateZScore(selfTargetPeerFF, FFmu, FFsigma) <= p.params.Tau {
 		FFnew = selfTargetPeerFF
 		sampleN += 1
 	}
 	for _, peer := range peerList {
 		zScore := calculateZScore(allFFS[peer.providerID][targetPeer.providerID], FFmu, FFsigma)
-		if zScore <= p.params.tau {
+		if zScore <= p.params.Tau {
 			FFnew += allFFS[peer.providerID][targetPeer.providerID]
 			sampleN += 1
 		}
@@ -77,7 +77,7 @@ func (p *Provider) calculateFFS(transaction transaction) map[string]float64 {
 		peerScore, exists := p.peerScoreMatrix[peer.providerID]
 		if !exists {
 			fmt.Printf("failed to get peer score for provider %s\n", peer.providerID)
-			FFS[peer.providerID] = p.params.defaultPeerFF
+			FFS[peer.providerID] = p.params.DefaultPeerFF
 			continue
 		}
 
