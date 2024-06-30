@@ -9,7 +9,7 @@ import (
 	"wifi-trade-consensus/internal/pkg/events"
 )
 
-func (p *Provider) handleBeaconPayload(payload beaconPayload) {
+func (p *provider) handleBeaconPayload(payload beaconPayload) {
 	currentTimestampMS := time.Now().UnixMilli()
 
 	entry, exists := p.peerScoreMatrix[payload.OriginID.String()]
@@ -44,7 +44,7 @@ func (p *Provider) handleBeaconPayload(payload beaconPayload) {
 }
 
 // Handle BUY event and respond by sending REQUEST_VOTE event
-func (p *Provider) handleBuyEvent(payload buyPayload) {
+func (p *provider) handleBuyEvent(payload buyPayload) {
 	// Init new transaction record
 	p.transactions[payload.TransactionID.String()] = transaction{
 		transactionID:   payload.TransactionID,
@@ -89,7 +89,7 @@ func (p *Provider) handleBuyEvent(payload buyPayload) {
 	}
 }
 
-func (p *Provider) handleRequestVote(payload requestVotePayload) {
+func (p *provider) handleRequestVote(payload requestVotePayload) {
 	conn, err := net.Dial("tcp", payload.OriginAddress)
 	if err != nil {
 		fmt.Printf("failed to dial remote peer: %v\n", err)
@@ -129,7 +129,7 @@ func (p *Provider) handleRequestVote(payload requestVotePayload) {
 	}
 }
 
-func (p *Provider) handleReplyVote(payload replyVotePayload) {
+func (p *provider) handleReplyVote(payload replyVotePayload) {
 	transactionID := payload.TransactionID.String()
 
 	peerCount := p.transactions[transactionID].peerCount
@@ -146,9 +146,9 @@ func (p *Provider) handleReplyVote(payload replyVotePayload) {
 		return
 	}
 
-	transaction, exists := p.transactions[payload.TransactionID.String()]
+	transaction, exists := p.transactions[transactionID]
 	if !exists {
-		fmt.Printf("transaction doesn't exist: %s", payload.TransactionID.String())
+		fmt.Printf("transaction doesn't exist: %s", transactionID)
 		return
 	}
 
@@ -186,7 +186,7 @@ func (p *Provider) handleReplyVote(payload replyVotePayload) {
 	}
 }
 
-func (p *Provider) handleTransactionEnd(payload transactionEndPayload) {
+func (p *provider) handleTransactionEnd(payload transactionEndPayload) {
 	// consumerAddress := p.transactions[payload.TransactionID.String()].consumerAddress
 	// conn, err := net.Dial("tcp", consumerAddress)
 	// if err != nil {

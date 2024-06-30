@@ -9,7 +9,7 @@ import (
 
 const oneDayInMS = 86400000 // 1 day = 86400000 milliseconds
 
-func (p *Provider) calculateFFSnew(peerList peers, allFFS allFFS) FFS {
+func (p *provider) calculateFFSnew(peerList peers, allFFS allFFS) FFS {
 	FFSnew := FFS{}
 
 	for _, peer := range peerList {
@@ -20,7 +20,7 @@ func (p *Provider) calculateFFSnew(peerList peers, allFFS allFFS) FFS {
 	return FFSnew
 }
 
-func (p *Provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS allFFS) float64 {
+func (p *provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS allFFS) float64 {
 	// Calculate FFsum
 	selfTargetPeerFF := allFFS[p.id.String()][targetPeer.providerID]
 	FFsum := selfTargetPeerFF // Init
@@ -68,7 +68,7 @@ func calculateZScore(FF float64, mu float64, sigma float64) float64 {
 }
 
 // Calculate FFS (Fittingness Factor Set or plural-prefix) for all other providers except self
-func (p *Provider) calculateFFS(transaction transaction) map[string]float64 {
+func (p *provider) calculateFFS(transaction transaction) map[string]float64 {
 	customerQOS := transaction.customerQOS
 
 	// Calculate FF for other providers, except self
@@ -91,7 +91,7 @@ func (p *Provider) calculateFFS(transaction transaction) map[string]float64 {
 	return FFS
 }
 
-func (p *Provider) checkVoteStatus(transactionID uuid.UUIDs) bool {
+func (p *provider) checkVoteStatus(transactionID uuid.UUIDs) bool {
 	return false
 }
 

@@ -23,7 +23,7 @@ func NewBeaconEmitter(beaconSettings beaconSettings) {
 				// fmt.Println("sending beacon to:", peer.address)
 				conn, err := net.Dial("tcp", peer.address)
 				if err != nil {
-					fmt.Printf("failed to send beacon to %s: %v\n", peer.address, err)
+					// fmt.Printf("failed to send beacon to %s: %v\n", peer.address, err)
 					continue
 				}
 

@@ -101,7 +101,7 @@ type options struct {
 	Params        params  `mapstructure:"params"`
 }
 
-type Provider struct {
+type provider struct {
 	id              uuid.UUID
 	address         string
 	price           float64
@@ -192,8 +192,8 @@ func NewOptions(address string, price float64, uplinkSpeed float64, downlinkSpee
 	}
 }
 
-func New(opt options) Provider {
-	return Provider{
+func New(opt options) provider {
+	return provider{
 		id:            uuid.New(),
 		address:       opt.Address,
 		price:         opt.Price,
@@ -205,7 +205,7 @@ func New(opt options) Provider {
 
 // Creates a new listener, this is a blocking function so wrapping the function
 // call in a goroutine is required.
-func (p *Provider) NewListener() error {
+func (p *provider) NewListener() error {
 	l, err := net.Listen("tcp", p.address)
 	if err != nil {
 		return fmt.Errorf("failed to create new listener: %w", err)
