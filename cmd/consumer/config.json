@@ -1,3 +1,10 @@
 {
-    "iperf3_server_port" : "5001"
+    "address": "localhost:9000",
+    "iperf3_server_port": "5001",
+    "price": "0.0000005",
+    "uplink": "30",
+    "downlink": "50",
+    "mu": "0.8",
+    "delta": "1",
+    "epsilon": "2"
 }

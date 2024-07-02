@@ -203,12 +203,13 @@ func NewOptions(address string, price float64, uplinkSpeed float64, downlinkSpee
 
 func New(opt options) provider {
 	provider := provider{
-		id:            uuid.New(),
-		address:       opt.Address,
-		price:         opt.Price,
-		uplinkSpeed:   opt.UplinkSpeed,
-		downlinkSpeed: opt.DownlinkSpeed,
-		params:        opt.Params,
+		id:               uuid.New(),
+		address:          opt.Address,
+		price:            opt.Price,
+		uplinkSpeed:      opt.UplinkSpeed,
+		downlinkSpeed:    opt.DownlinkSpeed,
+		params:           opt.Params,
+		iperf3ServerPort: opt.Iperf3ServerPort,
 	}
 
 	// Register cleanup for interrupt signal i.e. Ctrl^c

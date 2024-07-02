@@ -4,7 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
+	"time"
 	"wifi-trade-consensus/internal/pkg/events"
+	"wifi-trade-consensus/internal/pkg/iperf3"
 	"wifi-trade-consensus/internal/pkg/payload"
 
 	"github.com/google/uuid"
@@ -17,16 +23,29 @@ type allFFS map[string]FFS // index: provider id
 
 type FFS map[string]float64 // index: provider id
 
+type startFlowPayload struct {
+	PayloadMeta
+	Winner providerInfo `json:"winner"`
+}
+
+type buyPayload struct {
+	PayloadMeta
+	ProviderList providers `json:"provider_list"`
+	qosRequirements
+}
+
 type informVotePayload struct {
 	PayloadMeta
 	FFSnew FFS `json:"FFS_new"`
 }
 
 type consumer struct {
-	id              uuid.UUID
-	address         string
-	transactions    transactions
-	qosRequirements qosRequirements
+	id               uuid.UUID
+	address          string
+	transactions     transactions
+	qosRequirements  qosRequirements
+	iperf3ServerPort string
+	iperf3Cmd        *exec.Cmd
 }
 
 type transactions map[string]transaction
@@ -50,8 +69,9 @@ type providerInfo struct {
 }
 
 type options struct {
-	Address         string          `mapstructure:"address"`
-	qosRequirements qosRequirements `mapstructure:"params"`
+	address          string          `mapstructure:"address"`
+	iperf3ServerPort string          `mapstructure:"iperf3_server_port"`
+	qosRequirements  qosRequirements `mapstructure:"params"`
 }
 
 type qosRequirements struct {
@@ -97,11 +117,25 @@ func NewOptionsFromConfigFile() (*options, error) {
 }
 
 func New(opt options) consumer {
-	return consumer{
-		id:              uuid.New(),
-		address:         opt.Address,
-		qosRequirements: opt.qosRequirements,
+	consumer := consumer{
+		id:               uuid.New(),
+		address:          opt.address,
+		qosRequirements:  opt.qosRequirements,
+		iperf3ServerPort: opt.iperf3ServerPort,
 	}
+
+	// Register cleanup for interrupt signal i.e. Ctrl^c
+	channel := make(chan os.Signal)
+	signal.Notify(channel, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-channel
+		if err := consumer.cleanup(); err != nil {
+			fmt.Println("failed to cleanup:", err)
+		}
+		os.Exit(1)
+	}()
+
+	return consumer
 }
 
 func (c *consumer) NewListener() error {
@@ -150,4 +184,23 @@ func (c *consumer) NewListener() error {
 			}
 		}(conn)
 	}
+}
+
+func (c *consumer) NewIperf3Server() error {
+	cmd, err := iperf3.StartServer(c.iperf3ServerPort)
+	if err != nil {
+		return fmt.Errorf("failed to start iperf3 server: %w", err)
+	}
+	c.iperf3Cmd = cmd
+
+	return nil
+}
+
+func (c *consumer) cleanup() error {
+	if err := iperf3.StopServer(c.iperf3Cmd); err != nil {
+		return fmt.Errorf("failed to stop iperf3 server: %w", err)
+	}
+	fmt.Println("cleanup ran, preparing to shutdown...")
+	time.Sleep(time.Second * 3)
+	return nil
 }
