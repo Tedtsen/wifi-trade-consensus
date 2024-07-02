@@ -12,24 +12,34 @@ func main() {
 	// }), 110)
 	beaconSettings, err := provider.NewBeaconSettingsFromConfigFile()
 	if err != nil {
-		panic(fmt.Errorf("failed to read beacon settings from config file: %w", err))
+		fmt.Println("failed to read beacon settings from config file:", err)
+		return
 	}
 	fmt.Println("beacon settings loaded:", *beaconSettings)
+
+	// Begin beacon broadcast
+	go provider.NewBeaconEmitter(*beaconSettings)
 
 	// params := provider.NewParams(1000, 0.5, 0.5, 0.5, 3, 0)
 	// options := provider.NewOptions("localhost:8080", 0.0000007, 30, 50, params)
 	options, err := provider.NewParamsOptionsFromConfigFile()
 	if err != nil {
-		panic(fmt.Errorf("failed to read params and options from config file: %w", err))
+		fmt.Println("failed to read params and options from config file:", err)
+		return
 	}
 	fmt.Println("options loaded:", *options)
 
-	// Begin beacon broadcast
-	go provider.NewBeaconEmitter(*beaconSettings)
+	p := provider.New(*options)
+
+	// Create new iperf3 server
+	if err := p.NewIperf3Server(); err != nil {
+		fmt.Println("failed to create iperf3 server:", err)
+		return
+	}
 
 	// Create new listener for provider
-	p := provider.New(*options)
 	if err := p.NewListener(); err != nil {
-		fmt.Printf("failed to create new listener: %v", err)
+		fmt.Println("failed to create new listener:", err)
+		return
 	}
 }

@@ -1,5 +1,6 @@
 {
     "address": "localhost:8080",
+    "iperf3_server_port": "5001",
     "price": 0.0000007,
     "uplink_speed": 30,
     "downlink_speed": 100,

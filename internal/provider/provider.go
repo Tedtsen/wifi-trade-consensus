@@ -4,7 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
+	"time"
 	"wifi-trade-consensus/internal/pkg/events"
+	"wifi-trade-consensus/internal/pkg/iperf3"
 	"wifi-trade-consensus/internal/pkg/payload"
 
 	"github.com/google/uuid"
@@ -30,7 +36,7 @@ type customerQOS struct {
 
 type buyPayload struct {
 	PayloadMeta
-	PeerList peers `json:"peer_list"`
+	PeerList peers `json:"provider_list"`
 	customerQOS
 }
 
@@ -94,22 +100,25 @@ type params struct {
 }
 
 type options struct {
-	Address       string  `mapstructure:"address"`
-	Price         float64 `mapstructure:"price"`
-	UplinkSpeed   float64 `mapstructure:"uplink_speed"`
-	DownlinkSpeed float64 `mapstructure:"downlink_speed"`
-	Params        params  `mapstructure:"params"`
+	Address          string  `mapstructure:"address"`
+	Iperf3ServerPort string  `mapstructure:"iperf3_server_port"`
+	Price            float64 `mapstructure:"price"`
+	UplinkSpeed      float64 `mapstructure:"uplink_speed"`
+	DownlinkSpeed    float64 `mapstructure:"downlink_speed"`
+	Params           params  `mapstructure:"params"`
 }
 
 type provider struct {
-	id              uuid.UUID
-	address         string
-	price           float64
-	uplinkSpeed     float64
-	downlinkSpeed   float64
-	params          params
-	peerScoreMatrix peerScoreMatrix
-	transactions    transactions
+	id               uuid.UUID
+	address          string
+	price            float64
+	uplinkSpeed      float64
+	downlinkSpeed    float64
+	params           params
+	peerScoreMatrix  peerScoreMatrix
+	transactions     transactions
+	iperf3ServerPort string
+	iperf3Cmd        *exec.Cmd
 }
 
 // func NewParamsFromConfig() (*params, error) {
@@ -193,7 +202,7 @@ func NewOptions(address string, price float64, uplinkSpeed float64, downlinkSpee
 }
 
 func New(opt options) provider {
-	return provider{
+	provider := provider{
 		id:            uuid.New(),
 		address:       opt.Address,
 		price:         opt.Price,
@@ -201,6 +210,19 @@ func New(opt options) provider {
 		downlinkSpeed: opt.DownlinkSpeed,
 		params:        opt.Params,
 	}
+
+	// Register cleanup for interrupt signal i.e. Ctrl^c
+	channel := make(chan os.Signal)
+	signal.Notify(channel, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-channel
+		if err := provider.cleanup(); err != nil {
+			fmt.Println("failed to cleanup:", err)
+		}
+		os.Exit(1)
+	}()
+
+	return provider
 }
 
 // Creates a new listener, this is a blocking function so wrapping the function
@@ -291,4 +313,23 @@ func (p *provider) NewListener() error {
 			}
 		}(conn)
 	}
+}
+
+func (p *provider) NewIperf3Server() error {
+	cmd, err := iperf3.StartServer(p.iperf3ServerPort)
+	if err != nil {
+		return fmt.Errorf("failed to start iperf3 server: %w", err)
+	}
+	p.iperf3Cmd = cmd
+
+	return nil
+}
+
+func (p *provider) cleanup() error {
+	if err := iperf3.StopServer(p.iperf3Cmd); err != nil {
+		return fmt.Errorf("failed to stop iperf3 server: %w", err)
+	}
+	fmt.Println("cleanup ran, preparing to shutdown...")
+	time.Sleep(time.Second * 3)
+	return nil
 }
