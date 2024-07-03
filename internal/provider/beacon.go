@@ -58,6 +58,7 @@ func NewBeaconSettingsFromConfigFile() (*beaconSettings, error) {
 	viper.SetConfigName("beacon_config") // Name of config file (without extension)
 	viper.SetConfigType("json")          // REQUIRED if the config file does not have the extension in the name
 	viper.AddConfigPath(".")             // Path to look for the config file in
+	viper.AddConfigPath("cmd/provider")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
