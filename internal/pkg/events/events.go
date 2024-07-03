@@ -5,7 +5,9 @@ const (
 	BUY
 	REQUEST_VOTE
 	REPLY_VOTE
-	DECLARE_VICTORY
-	INFORM_WINNER
+	INFORM_VOTE
+	START_FLOW
 	TRANSACTION_END
+	// Trigger events for simulation of consumer's actions
+	// BUY_TRIGGER
 )
