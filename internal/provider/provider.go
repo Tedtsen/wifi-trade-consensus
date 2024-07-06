@@ -3,10 +3,12 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 	"wifi-trade-consensus/internal/pkg/events"
@@ -26,12 +28,12 @@ type beaconPayload struct {
 }
 
 type customerQOS struct {
-	PriceConsumer         float64 `json:"price_consumer"`    // consumer price requirement
-	UplinkSpeedConsumer   float64 `json:"uplink_consumer"`   // consumer uplink speed requirement
-	DownlinkSpeedConsumer float64 `json:"downlink_consumer"` // consumer downlink speed requirement
-	Mu                    float64 `json:"mu"`                // uplink weight
-	Delta                 float64 `json:"delta"`             // downlink weight
-	Epsilon               float64 `json:"epsilon"`           // price range multiplier limit
+	PriceConsumer         float64 `json:"price"`    // consumer price requirement
+	UplinkSpeedConsumer   float64 `json:"uplink"`   // consumer uplink speed requirement
+	DownlinkSpeedConsumer float64 `json:"downlink"` // consumer downlink speed requirement
+	Mu                    float64 `json:"mu"`       // uplink weight
+	Delta                 float64 `json:"delta"`    // downlink weight
+	Epsilon               float64 `json:"epsilon"`  // price range multiplier limit
 }
 
 type buyPayload struct {
@@ -42,8 +44,8 @@ type buyPayload struct {
 
 type requestVotePayload struct {
 	PayloadMeta
-	CandidateID uuid.UUID
-	Price       float64
+	CandidateID string  `json:"candidate_id"`
+	Price       float64 `json:"price"`
 }
 
 type allFFS map[string]FFS // index: provider id
@@ -55,6 +57,11 @@ type transactionEndPayload struct {
 	// TODO
 }
 
+type startFlowPayload struct {
+	PayloadMeta
+	Winner peerInfo `json:"winner"`
+}
+
 type replyVotePayload struct {
 	PayloadMeta
 	FFS FFS `json:"FFS"`
@@ -62,6 +69,7 @@ type replyVotePayload struct {
 
 type informVotePayload struct {
 	PayloadMeta
+	peerInfo
 	FFSnew FFS `json:"FFS_new"`
 }
 
@@ -71,8 +79,10 @@ type informWinnerPayload struct {
 }
 
 type peerInfo struct {
-	providerID string
-	address    string
+	ProviderID           string `json:"provider_id"`
+	Address              string `json:"address"`
+	Iperf3BaseServerPort string `json:"iperf3_base_server_port"`
+	Iperf3ServerCount    int    `json:"iperf3_server_count"`
 }
 
 type peers []peerInfo
@@ -80,12 +90,16 @@ type peers []peerInfo
 type transaction struct {
 	transactionID   uuid.UUID
 	transactionTime int64
-	consumerID      uuid.UUID
+	consumerID      string
 	consumerAddress string
 	peerList        peers
 	peerCount       int
 	allFFS          allFFS
 	customerQOS     customerQOS
+	// Flow details
+	winner        peerInfo
+	flowStartTime int
+	flowEndTime   int
 }
 
 type transactions map[string]transaction
@@ -100,25 +114,30 @@ type params struct {
 }
 
 type options struct {
-	Address          string  `mapstructure:"address"`
-	Iperf3ServerPort string  `mapstructure:"iperf3_server_port"`
-	Price            float64 `mapstructure:"price"`
-	UplinkSpeed      float64 `mapstructure:"uplink_speed"`
-	DownlinkSpeed    float64 `mapstructure:"downlink_speed"`
-	Params           params  `mapstructure:"params"`
+	ID                   string  `mapstructure:"id"`
+	Address              string  `mapstructure:"address"`
+	Iperf3BaseServerPort string  `mapstructure:"iperf3_base_server_port"`
+	Iperf3ServerCount    int     `mapstructure:"iperf3_server_count"`
+	Price                float64 `mapstructure:"price"`
+	UplinkSpeed          float64 `mapstructure:"uplink_speed"`
+	DownlinkSpeed        float64 `mapstructure:"downlink_speed"`
+	Params               params  `mapstructure:"params"`
 }
 
 type provider struct {
-	id               uuid.UUID
-	address          string
-	price            float64
-	uplinkSpeed      float64
-	downlinkSpeed    float64
-	params           params
-	peerScoreMatrix  peerScoreMatrix
-	transactions     transactions
-	iperf3ServerPort string
-	iperf3Cmd        *exec.Cmd
+	id                   string
+	address              string
+	price                float64
+	uplinkSpeed          float64
+	downlinkSpeed        float64
+	params               params
+	peerScoreMatrix      peerScoreMatrix
+	transactions         transactions
+	iperf3BaseServerPort string
+	iperf3ServerCount    int
+	iperf3Cmds           []*exec.Cmd
+	mutex                sync.Mutex
+	activeConsumerCount  int
 }
 
 // func NewParamsFromConfig() (*params, error) {
@@ -150,9 +169,16 @@ func NewParamsOptionsFromConfigFile() (*options, error) {
 	params := params{}
 	options := options{}
 
-	viper.SetConfigName("config") // Name of config file (without extension)
-	viper.SetConfigType("json")   // REQUIRED if the config file does not have the extension in the name
-	viper.AddConfigPath(".")      // Path to look for the config file in
+	// Name of config file (without extension)
+	// Get docker container's env variable
+	if nodeNum := os.Getenv("node_num"); nodeNum != "" {
+		viper.SetConfigName("config" + nodeNum)
+	} else {
+		viper.SetConfigName("config")
+	}
+
+	viper.SetConfigType("json") // REQUIRED if the config file does not have the extension in the name
+	viper.AddConfigPath(".")    // Path to look for the config file in
 	viper.AddConfigPath("cmd/provider")
 
 	if err := viper.ReadInConfig(); err != nil {
@@ -204,13 +230,16 @@ func NewOptions(address string, price float64, uplinkSpeed float64, downlinkSpee
 
 func New(opt options) provider {
 	provider := provider{
-		id:               uuid.New(),
-		address:          opt.Address,
-		price:            opt.Price,
-		uplinkSpeed:      opt.UplinkSpeed,
-		downlinkSpeed:    opt.DownlinkSpeed,
-		params:           opt.Params,
-		iperf3ServerPort: opt.Iperf3ServerPort,
+		id:                   opt.ID,
+		address:              opt.Address,
+		price:                opt.Price,
+		uplinkSpeed:          opt.UplinkSpeed,
+		downlinkSpeed:        opt.DownlinkSpeed,
+		params:               opt.Params,
+		peerScoreMatrix:      make(peerScoreMatrix),
+		transactions:         make(transactions),
+		iperf3BaseServerPort: opt.Iperf3BaseServerPort,
+		iperf3ServerCount:    opt.Iperf3ServerCount,
 	}
 
 	// Register cleanup for interrupt signal i.e. Ctrl^c
@@ -232,7 +261,7 @@ func New(opt options) provider {
 func (p *provider) NewListener() error {
 	l, err := net.Listen("tcp", p.address)
 	if err != nil {
-		return fmt.Errorf("failed to create new listener: %w", err)
+		return fmt.Errorf("failed to listen tcp address: %w", err)
 	}
 	defer l.Close()
 
@@ -244,73 +273,91 @@ func (p *provider) NewListener() error {
 			fmt.Println("failed to accept new connection:", err)
 		}
 		// Concurrently handle the new connections
-		go func(c net.Conn) {
-			defer c.Close()
+		go func(conn net.Conn) {
+			defer conn.Close()
+
+			data, err := io.ReadAll(conn)
+			if err != nil {
+				fmt.Println("failed to read connection data:", err)
+			}
 
 			payloadMeta := payload.Meta{}
-			d := json.NewDecoder(c)
-			err := d.Decode(&payloadMeta)
+			err = json.Unmarshal(data, &payloadMeta)
 			if err != nil {
-				fmt.Printf("failed to decode payload meta from %s: %v\n", c.RemoteAddr().String(), err)
+				fmt.Printf("failed to unmarshal payload meta from %s: %v\n", conn.RemoteAddr().String(), err)
 				return
 			}
-			fmt.Printf("received payload meta from %s: %v\n", c.RemoteAddr(), payloadMeta)
+			// fmt.Printf("received payload meta from %s: %v\n", conn.RemoteAddr(), payloadMeta)
 
 			switch payloadMeta.PayloadType {
 
 			// Handle BEACON event
 			case events.BEACON:
 				beaconPayload := beaconPayload{}
-				if err := d.Decode(&beaconPayload); err != nil {
-					fmt.Printf("failed to decode BEACON payload from %s: %v\n", c.RemoteAddr().String(), err)
+				if err := json.Unmarshal(data, &beaconPayload); err != nil {
+					fmt.Printf("failed to unmarshal BEACON payload from %s: %v\n", conn.RemoteAddr().String(), err)
 					return
 				}
-				fmt.Printf("received BEACON payload from %s: %v\n", c.RemoteAddr().String(), beaconPayload)
+				// fmt.Printf("received BEACON payload from %s: %v\n", conn.RemoteAddr().String(), beaconPayload)
 				p.handleBeaconPayload(beaconPayload)
 
 			// Handle BUY event
 			case events.BUY:
 				buyPayload := buyPayload{}
-				if err := d.Decode(&buyPayload); err != nil {
-					fmt.Printf("failed to decode BUY payload from %s: %v\n", c.RemoteAddr().String(), err)
+				if err := json.Unmarshal(data, &buyPayload); err != nil {
+					fmt.Printf("failed to unmarshal BUY payload from %s: %v\n", conn.RemoteAddr().String(), err)
 					return
 				}
-				fmt.Printf("received BUY payload from %s: %v\n", c.RemoteAddr().String(), buyPayload)
+				fmt.Printf("received BUY payload from %s: %v\n", conn.RemoteAddr().String(), buyPayload)
 				p.handleBuyEvent(buyPayload)
 
 			// Handle REQUEST_VOTE event
 			case events.REQUEST_VOTE:
 				requestVotePayload := requestVotePayload{}
-				if err := d.Decode(&requestVotePayload); err != nil {
-					fmt.Printf("failed to decode REQUEST_VOTE payload from %s: %v\n", c.RemoteAddr().String(), err)
+				if err := json.Unmarshal(data, &requestVotePayload); err != nil {
+					fmt.Printf("failed to unmarshal REQUEST_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), err)
 					return
 				}
-				fmt.Printf("received REQUEST_VOTE payload from %s: %v\n", c.RemoteAddr().String(), requestVotePayload)
+				fmt.Printf("received REQUEST_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), requestVotePayload)
 				p.handleRequestVote(requestVotePayload)
 
 			// Handle REPLY_VOTE event
 			case events.REPLY_VOTE:
 				replyVotePayload := replyVotePayload{}
-				if err := d.Decode(&replyVotePayload); err != nil {
-					fmt.Printf("failed to decode REPLY_VOTE payload from %s: %v\n", c.RemoteAddr().String(), err)
+				if err := json.Unmarshal(data, &replyVotePayload); err != nil {
+					fmt.Printf("failed to unmarshal REPLY_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), err)
 					return
 				}
-				fmt.Printf("received REPLY_VOTE payload from %s: %v\n", c.RemoteAddr().String(), replyVotePayload)
+				fmt.Printf("received REPLY_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), replyVotePayload)
 				p.handleReplyVote(replyVotePayload)
 
 			// Handle TRANSACTION_END event
 			case events.TRANSACTION_END:
 				transactionEndPayload := transactionEndPayload{}
-				if err := d.Decode(&transactionEndPayload); err != nil {
-					fmt.Printf("failed to decode TRANSACTION_END payload from %s: %v\n", c.RemoteAddr().String(), err)
+				if err := json.Unmarshal(data, &transactionEndPayload); err != nil {
+					fmt.Printf("failed to unmarshal TRANSACTION_END payload from %s: %v\n", conn.RemoteAddr().String(), err)
 					return
 				}
-				fmt.Printf("received TRANSACTION_END payload from %s: %v\n", c.RemoteAddr().String(), transactionEndPayload)
+				fmt.Printf("received TRANSACTION_END payload from %s: %v\n", conn.RemoteAddr().String(), transactionEndPayload)
 				p.handleTransactionEnd(transactionEndPayload)
+
+			case events.START_FLOW:
+				startFlowPayload := startFlowPayload{}
+				if err := json.Unmarshal(data, &startFlowPayload); err != nil {
+					fmt.Printf("failed to unmarshal START_FLOW payload from %s: %v\n", conn.RemoteAddr().String(), err)
+					return
+				}
+				fmt.Printf("received START_FLOW payload from %s: %v\n", conn.RemoteAddr().String(), startFlowPayload)
+				p.handleStartFlow(startFlowPayload)
+
+			// Handle GET_PROVIDER_STATS debug event
+			case events.GET_PROVIDER_STATS:
+				fmt.Printf("received GET_PROVIDER_STATS from %s\n", conn.RemoteAddr().String())
+				p.handleGetProviderStats(conn)
 
 			// Handle unknown events
 			default:
-				fmt.Printf("failed to determine event type: %v", payloadMeta)
+				fmt.Println("failed to determine event type:", payloadMeta)
 				return
 			}
 		}(conn)
@@ -318,19 +365,22 @@ func (p *provider) NewListener() error {
 }
 
 func (p *provider) NewIperf3Server() error {
-	cmd, err := iperf3.StartServer(p.iperf3ServerPort)
+	cmds, err := iperf3.StartServers(p.iperf3BaseServerPort, p.iperf3ServerCount)
 	if err != nil {
 		return fmt.Errorf("failed to start iperf3 server: %w", err)
 	}
-	p.iperf3Cmd = cmd
+	p.iperf3Cmds = cmds
 
 	return nil
 }
 
 func (p *provider) cleanup() error {
-	if err := iperf3.StopServer(p.iperf3Cmd); err != nil {
-		return fmt.Errorf("failed to stop iperf3 server: %w", err)
+	for _, cmd := range p.iperf3Cmds {
+		if err := iperf3.StopServer(cmd); err != nil {
+			return fmt.Errorf("failed to stop iperf3 server: %w", err)
+		}
 	}
+
 	fmt.Println("cleanup ran, preparing to shutdown...")
 	time.Sleep(time.Second * 3)
 	return nil

@@ -9,5 +9,7 @@ const (
 	START_FLOW
 	TRANSACTION_END
 	// Trigger events for simulation of consumer's actions
-	// BUY_TRIGGER
+	TRIGGER_BUY
+	// Get stats
+	GET_PROVIDER_STATS
 )

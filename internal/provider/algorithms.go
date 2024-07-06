@@ -13,8 +13,11 @@ func (p *provider) calculateFFSnew(peerList peers, allFFS allFFS) FFS {
 	FFSnew := FFS{}
 
 	for _, peer := range peerList {
+		if peer.ProviderID == p.id {
+			continue
+		}
 		FF := p.calculateFFnew(peer, peerList, allFFS)
-		FFSnew[peer.providerID] = FF
+		FFSnew[peer.ProviderID] = FF
 	}
 
 	return FFSnew
@@ -22,11 +25,11 @@ func (p *provider) calculateFFSnew(peerList peers, allFFS allFFS) FFS {
 
 func (p *provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS allFFS) float64 {
 	// Calculate FFsum
-	selfTargetPeerFF := allFFS[p.id.String()][targetPeer.providerID]
+	selfTargetPeerFF := allFFS[p.id][targetPeer.ProviderID]
 	FFsum := selfTargetPeerFF // Init
 	for _, peer := range peerList {
-		if peer.providerID != targetPeer.providerID {
-			FFsum += allFFS[peer.providerID][targetPeer.providerID]
+		if peer.ProviderID != targetPeer.ProviderID {
+			FFsum += allFFS[peer.ProviderID][targetPeer.ProviderID]
 		}
 	}
 
@@ -38,8 +41,8 @@ func (p *provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS al
 	dividend := math.Pow(selfTargetPeerFF-FFmu, 2)
 	divisor := populationN
 	for _, peer := range peerList {
-		if peer.providerID != targetPeer.providerID {
-			dividend += math.Pow(allFFS[peer.providerID][targetPeer.providerID]-FFmu, 2)
+		if peer.ProviderID != targetPeer.ProviderID {
+			dividend += math.Pow(allFFS[peer.ProviderID][targetPeer.ProviderID]-FFmu, 2)
 		}
 	}
 	FFsigma := math.Sqrt(dividend / float64(divisor))
@@ -52,9 +55,9 @@ func (p *provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS al
 		sampleN += 1
 	}
 	for _, peer := range peerList {
-		zScore := calculateZScore(allFFS[peer.providerID][targetPeer.providerID], FFmu, FFsigma)
+		zScore := calculateZScore(allFFS[peer.ProviderID][targetPeer.ProviderID], FFmu, FFsigma)
 		if zScore <= p.params.Tau {
-			FFnew += allFFS[peer.providerID][targetPeer.providerID]
+			FFnew += allFFS[peer.ProviderID][targetPeer.ProviderID]
 			sampleN += 1
 		}
 	}
@@ -64,7 +67,7 @@ func (p *provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS al
 }
 
 func calculateZScore(FF float64, mu float64, sigma float64) float64 {
-	return (FF - mu) / (sigma)
+	return (FF - mu) / (sigma + math.SmallestNonzeroFloat64)
 }
 
 // Calculate FFS (Fittingness Factor Set or plural-prefix) for all other providers except self
@@ -74,18 +77,21 @@ func (p *provider) calculateFFS(transaction transaction) map[string]float64 {
 	// Calculate FF for other providers, except self
 	FFS := map[string]float64{}
 	for _, peer := range transaction.peerList {
-		peerScore, exists := p.peerScoreMatrix[peer.providerID]
+		peerScore, exists := p.peerScoreMatrix[peer.ProviderID]
 		if !exists {
-			fmt.Printf("failed to get peer score for provider %s\n", peer.providerID)
-			FFS[peer.providerID] = p.params.DefaultPeerFF
+			fmt.Printf("failed to get peer score for provider %s\n", peer.ProviderID)
+			FFS[peer.ProviderID] = p.params.DefaultPeerFF
 			continue
 		}
+
+		fmt.Println("customerQOS:", customerQOS)
+		fmt.Println("peerScore:", peerScore)
 
 		PF := calculatePriceFittingness(customerQOS.PriceConsumer, peerScore.lastPrice, customerQOS.Epsilon)
 		SF := calculateSpeedFittingness(customerQOS.UplinkSpeedConsumer, peerScore.uplinkSpeed, customerQOS.Mu,
 			customerQOS.DownlinkSpeedConsumer, peerScore.downlinkSpeed, customerQOS.Delta)
 		FF := calculateFittingnessFactor(PF, SF, peerScore.uptime, peerScore.load, peerScore.signalStrength, peerScore.consumerFeedback)
-		FFS[peer.providerID] = FF
+		FFS[peer.ProviderID] = FF
 	}
 
 	return FFS
@@ -113,7 +119,7 @@ func calculateSignalStrength(RSSI int, k float64) float64 {
 }
 
 func calculatePriceFittingness(priceConsumer float64, priceProvider float64, epsilon float64) float64 {
-	dividend := (1 - (priceConsumer / priceProvider)) + (epsilon - 1)
+	dividend := (1 - (priceProvider / priceConsumer)) + (epsilon - 1)
 	divisor := epsilon
 	return dividend / divisor
 }

@@ -26,6 +26,5 @@ EXPOSE 8888
 RUN apt -y update
 RUN apt -y install iperf3
 
-
 # Run
 CMD ["/app/docker-build"]

@@ -3,10 +3,12 @@ package consumer
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 	"wifi-trade-consensus/internal/pkg/events"
@@ -36,16 +38,19 @@ type buyPayload struct {
 
 type informVotePayload struct {
 	PayloadMeta
+	providerInfo
 	FFSnew FFS `json:"FFS_new"`
 }
 
 type consumer struct {
-	id               uuid.UUID
-	address          string
-	transactions     transactions
-	qosRequirements  qosRequirements
-	iperf3ServerPort string
-	iperf3Cmd        *exec.Cmd
+	id                   string
+	address              string
+	transactions         transactions
+	qosRequirements      qosRequirements
+	iperf3BaseServerPort string
+	iperf3ServerCount    int
+	iperf3Cmds           []*exec.Cmd
+	mutex                sync.Mutex
 }
 
 type transactions map[string]transaction
@@ -53,7 +58,7 @@ type transactions map[string]transaction
 type transaction struct {
 	transactionID   uuid.UUID
 	transactionTime int64
-	consumerID      uuid.UUID
+	consumerID      string
 	consumerAddress string
 	providerList    providers
 	providerCount   int
@@ -64,23 +69,29 @@ type transaction struct {
 type providers []providerInfo
 
 type providerInfo struct {
-	providerID string
-	address    string
+	ProviderID           string `json:"provider_id"`
+	Address              string `json:"address"`
+	Iperf3BaseServerPort string `json:"iperf3_base_server_port"`
+	Iperf3ServerCount    int    `json:"iperf3_server_count"`
 }
 
+// mapstructure tags are for config file mapping
+// json tags are for tcp body mapping
 type options struct {
-	address          string          `mapstructure:"address"`
-	iperf3ServerPort string          `mapstructure:"iperf3_server_port"`
-	qosRequirements  qosRequirements `mapstructure:"params"`
+	ID                   string          `mapstructure:"id" json:"id"`
+	Address              string          `mapstructure:"address" json:"address"`
+	Iperf3BaseServerPort string          `mapstructure:"iperf3_base_server_port" json:"iperf3_base_server_port"`
+	Iperf3ServerCount    int             `mapstructure:"iperf3_server_count" json:"iperf3_server_count"`
+	QOSRequirements      qosRequirements `mapstructure:"params" json:"params"`
 }
 
 type qosRequirements struct {
-	PriceConsumer         float64 `mapstructure:"price"`    // consumer price requirement
-	UplinkSpeedConsumer   float64 `mapstructure:"uplink"`   // consumer uplink speed requirement
-	DownlinkSpeedConsumer float64 `mapstructure:"downlink"` // consumer downlink speed requirement
-	Mu                    float64 `mapstructure:"mu"`       // uplink weight
-	Delta                 float64 `mapstructure:"delta"`    // downlink weight
-	Epsilon               float64 `mapstructure:"epsilon"`  // price range multiplier limit
+	PriceConsumer         float64 `mapstructure:"price" json:"price"`       // consumer price requirement
+	UplinkSpeedConsumer   float64 `mapstructure:"uplink" json:"uplink"`     // consumer uplink speed requirement
+	DownlinkSpeedConsumer float64 `mapstructure:"downlink" json:"downlink"` // consumer downlink speed requirement
+	Mu                    float64 `mapstructure:"mu" json:"mu"`             // uplink weight
+	Delta                 float64 `mapstructure:"delta" json:"delta"`       // downlink weight
+	Epsilon               float64 `mapstructure:"epsilon" json:"epsilon"`   // price range multiplier limit
 }
 
 func NewOptionsFromConfigFile() (*options, error) {
@@ -90,6 +101,7 @@ func NewOptionsFromConfigFile() (*options, error) {
 	viper.SetConfigName("config") // Name of config file (without extension)
 	viper.SetConfigType("json")   // REQUIRED if the config file does not have the extension in the name
 	viper.AddConfigPath(".")      // Path to look for the config file in
+	viper.AddConfigPath("cmd/consumer")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -111,17 +123,19 @@ func NewOptionsFromConfigFile() (*options, error) {
 		return nil, fmt.Errorf("failed to unmarshal options config file: %w", err)
 	}
 
-	options.qosRequirements = qosRequirements
+	options.QOSRequirements = qosRequirements
 
 	return &options, nil
 }
 
 func New(opt options) consumer {
 	consumer := consumer{
-		id:               uuid.New(),
-		address:          opt.address,
-		qosRequirements:  opt.qosRequirements,
-		iperf3ServerPort: opt.iperf3ServerPort,
+		id:                   opt.ID,
+		address:              opt.Address,
+		transactions:         make(transactions),
+		qosRequirements:      opt.QOSRequirements,
+		iperf3BaseServerPort: opt.Iperf3BaseServerPort,
+		iperf3ServerCount:    opt.Iperf3ServerCount,
 	}
 
 	// Register cleanup for interrupt signal i.e. Ctrl^c
@@ -156,22 +170,36 @@ func (c *consumer) NewListener() error {
 		go func(conn net.Conn) {
 			defer conn.Close()
 
-			payloadMeta := payload.Meta{}
-			d := json.NewDecoder(conn)
-			err := d.Decode(&payloadMeta)
+			data, err := io.ReadAll(conn)
 			if err != nil {
-				fmt.Printf("failed to decode payload meta from %s: %v\n", conn.RemoteAddr().String(), err)
+				fmt.Println("failed to read connection data:", err)
+			}
+
+			payloadMeta := payload.Meta{}
+			err = json.Unmarshal(data, &payloadMeta)
+			if err != nil {
+				fmt.Printf("failed to unmarshal payload meta from %s: %v\n", conn.RemoteAddr().String(), err)
 				return
 			}
 			fmt.Printf("received payload meta from %s: %v\n", conn.RemoteAddr(), payloadMeta)
 
 			switch payloadMeta.PayloadType {
 
+			// Handle TRIGGER_BUY event
+			case events.TRIGGER_BUY:
+				buyPayload := buyPayload{}
+				if err := json.Unmarshal(data, &buyPayload); err != nil {
+					fmt.Printf("failed to unmarshal TRIGGER_BUY payload from %s: %v\n", conn.RemoteAddr().String(), err)
+					return
+				}
+				fmt.Printf("received TRIGGER_BUY payload from %s: %#v\n", conn.RemoteAddr().String(), buyPayload)
+				c.triggerBuyEvent(buyPayload)
+
 			// Handle INFORM_VOTE event
 			case events.INFORM_VOTE:
 				informVotePayload := informVotePayload{}
-				if err := d.Decode(&informVotePayload); err != nil {
-					fmt.Printf("failed to decode INFORM_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), err)
+				if err := json.Unmarshal(data, &informVotePayload); err != nil {
+					fmt.Printf("failed to unmarshal INFORM_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), err)
 					return
 				}
 				fmt.Printf("received INFORM_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), informVotePayload)
@@ -187,18 +215,20 @@ func (c *consumer) NewListener() error {
 }
 
 func (c *consumer) NewIperf3Server() error {
-	cmd, err := iperf3.StartServer(c.iperf3ServerPort)
+	cmds, err := iperf3.StartServers(c.iperf3BaseServerPort, c.iperf3ServerCount)
 	if err != nil {
 		return fmt.Errorf("failed to start iperf3 server: %w", err)
 	}
-	c.iperf3Cmd = cmd
+	c.iperf3Cmds = cmds
 
 	return nil
 }
 
 func (c *consumer) cleanup() error {
-	if err := iperf3.StopServer(c.iperf3Cmd); err != nil {
-		return fmt.Errorf("failed to stop iperf3 server: %w", err)
+	for _, cmd := range c.iperf3Cmds {
+		if err := iperf3.StopServer(cmd); err != nil {
+			return fmt.Errorf("failed to stop iperf3 server: %w", err)
+		}
 	}
 	fmt.Println("cleanup ran, preparing to shutdown...")
 	time.Sleep(time.Second * 3)

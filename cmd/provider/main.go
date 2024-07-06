@@ -17,9 +17,6 @@ func main() {
 	}
 	fmt.Println("beacon settings loaded:", *beaconSettings)
 
-	// Begin beacon broadcast
-	go provider.NewBeaconEmitter(*beaconSettings)
-
 	// params := provider.NewParams(1000, 0.5, 0.5, 0.5, 3, 0)
 	// options := provider.NewOptions("localhost:8080", 0.0000007, 30, 50, params)
 	options, err := provider.NewParamsOptionsFromConfigFile()
@@ -30,6 +27,9 @@ func main() {
 	fmt.Println("options loaded:", *options)
 
 	p := provider.New(*options)
+
+	// Begin beacon broadcast
+	go p.NewBeaconEmitter(*beaconSettings)
 
 	// Create new iperf3 server
 	if err := p.NewIperf3Server(); err != nil {
