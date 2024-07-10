@@ -25,6 +25,10 @@ EXPOSE 8888
 
 RUN apt -y update
 RUN apt -y install iperf3
+RUN apt -y install iproute2
+
+
+# RUN bash ./app/scripts/network_limiter.sh
 
 # Run
 CMD ["/app/docker-build"]
