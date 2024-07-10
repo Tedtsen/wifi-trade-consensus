@@ -18,10 +18,10 @@ func (p *provider) handleBeaconPayload(payload beaconPayload) {
 			uptime:           calculateUptime(currentTimestampMS, currentTimestampMS, p.params.KUptime),
 			signalStrength:   calculateSignalStrength(payload.RSSI, p.params.KStrength),
 			load:             calculateLoad(payload.ChannelUtilizationRate, p.params.KLoad),
-			uplinkSpeed:      100,
-			downlinkSpeed:    100,
-			lastPrice:        0.0000001,
-			consumerFeedback: 3,
+			uplinkSpeed:      p.defaultPeerUplinkSpeed,
+			downlinkSpeed:    p.defaultPeerDownlinkSpeed,
+			lastPrice:        p.defaultPeerLastPrice,
+			consumerFeedback: p.defaultPeerConsumerFeedback,
 			beaconTimestamps: beaconTimestamps{
 				initial: currentTimestampMS,
 				last:    currentTimestampMS,
@@ -128,18 +128,25 @@ func (p *provider) handleRequestVote(payload requestVotePayload) {
 	}
 	defer conn.Close()
 
-	trans, exists := p.transactions[payload.TransactionID.String()]
+	transactionID := payload.TransactionID.String()
+	trans, exists := p.transactions[transactionID]
 	if !exists {
-		fmt.Printf("transaction doesn't exist: %s\n", payload.TransactionID.String())
+		fmt.Printf("transaction doesn't exist: %s\n", transactionID)
 		return
 	}
 
+	// TODO wait for all connections
+	// Update peer's price and update its FF
+	peerScore := p.peerScoreMatrix[payload.CandidateID]
+	peerScore.lastPrice = payload.Price
+	p.peerScoreMatrix[payload.CandidateID] = peerScore
+
+	trans.allFFS[p.id] = p.calculateFFS(p.transactions[transactionID])
+
 	FFS := trans.allFFS[p.id]
 
-	// // Save FFS calculation to current transaction's allFFS, indexed with self id
+	// // Save FFS calculation to current transaction's allFFS, indexed with self id (moved to handle BUY)
 	// p.transactions[payload.TransactionID.String()].allFFS[p.id] = FFS
-
-	// fmt.Println("FFS calculation:", FFS)
 
 	// Build response
 	response := replyVotePayload{
@@ -192,7 +199,7 @@ func (p *provider) handleReplyVote(payload replyVotePayload) {
 
 	transaction, exists := p.transactions[transactionID]
 	if !exists {
-		fmt.Printf("transaction doesn't exist: %s", transactionID)
+		fmt.Printf("transaction doesn't exist: %s\n", transactionID)
 		return
 	}
 
@@ -215,6 +222,7 @@ func (p *provider) handleReplyVote(payload replyVotePayload) {
 			Iperf3ServerCount:    p.iperf3ServerCount,
 		},
 		FFSnew: FFSnew,
+		Price:  p.price,
 	}
 
 	// TODO: This should be sent to consumer, not peers
@@ -242,27 +250,51 @@ func (p *provider) handleReplyVote(payload replyVotePayload) {
 }
 
 func (p *provider) handleStartFlow(payload startFlowPayload) {
-	transaction, exists := p.transactions[payload.OriginID]
+	transaction, exists := p.transactions[payload.TransactionID.String()]
 	if !exists {
 		fmt.Printf("transaction doesn't exist: %s\n", payload.TransactionID.String())
 		return
 	}
 
+	if payload.Winner.ProviderID == p.id {
+		// Increase active flow count, to calculate current channel utilization
+		// rate (sent in beacon)
+		p.activeFlowCount += 1
+	}
+
 	transaction.winner = payload.Winner
+
+	// Reassign
 	p.transactions[payload.OriginID] = transaction
 }
 
 func (p *provider) handleTransactionEnd(payload transactionEndPayload) {
-	// consumerAddress := p.transactions[payload.TransactionID.String()].consumerAddress
-	// conn, err := net.Dial("tcp", consumerAddress)
-	// if err != nil {
-	// 	fmt.Printf("failed to dial remote consumer: %v\n", err)
-	// 	return
-	// }
-	// defer conn.Close()
+	transaction, exists := p.transactions[payload.TransactionID.String()]
+	if !exists {
+		fmt.Printf("transaction doesn't exist: %s\n", payload.TransactionID.String())
+		return
+	}
 
-	// TODO
+	if transaction.winner.ProviderID == p.id {
+		// Decrease active flow count, to calculate current channel utilization
+		// rate (sent in beacon)
+		p.activeFlowCount -= 1
+	}
 
+	for _, peer := range transaction.peerList {
+		if peer.ProviderID == p.id {
+			continue
+		}
+		peerScore := p.peerScoreMatrix[peer.ProviderID]
+
+		peerScore.uplinkSpeed = payload.UplinkSpeed
+		peerScore.downlinkSpeed = payload.DownlinkSpeed
+		peerScore.consumerFeedback = calculateCustomerFeedback(peerScore.consumerFeedback,
+			payload.Rating, p.params.Gamma)
+
+		// Reassign
+		p.peerScoreMatrix[peer.ProviderID] = peerScore
+	}
 }
 
 func (p *provider) handleGetProviderStats(conn net.Conn) {

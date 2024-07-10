@@ -10,7 +10,14 @@ import (
 
 const app = "iperf3"
 
-type results struct {
+type streamDirection int
+
+const (
+	FORWARD streamDirection = iota
+	REVERSE
+)
+
+type Results struct {
 	End struct {
 		SumSent struct {
 			BitsPerSecond float64 `json:"bits_per_second"`
@@ -55,7 +62,7 @@ func startServer(port string) (*exec.Cmd, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to run iperf3 cmd: %w", err)
 	}
-	fmt.Printf("iperf3 start server output: %s\n", buf.String())
+	fmt.Println("iperf3 server started at localhost port:", port)
 	return cmd, nil
 }
 
@@ -67,7 +74,8 @@ func StopServer(cmd *exec.Cmd) error {
 	return nil
 }
 
-func StartStream(ip string, basePort string, serverCount int, size string) (*results, error) {
+// Mock Upload
+func StartStream(ip string, basePort string, serverCount int, size string, title string) (*Results, error) {
 
 	for i := 0; i < serverCount; i += 1 {
 		port, err := strconv.Atoi(basePort)
@@ -76,7 +84,7 @@ func StartStream(ip string, basePort string, serverCount int, size string) (*res
 		}
 		port += i
 
-		res, err := tryStartStream(ip, fmt.Sprint(port), size)
+		res, err := tryStartStream(ip, fmt.Sprint(port), size, title, FORWARD)
 		if err != nil {
 			fmt.Printf("failed to start stream with port %s: %v\n", fmt.Sprint(port), err)
 			continue
@@ -87,12 +95,38 @@ func StartStream(ip string, basePort string, serverCount int, size string) (*res
 	return nil, fmt.Errorf("failed to send stream, no port available")
 }
 
-func tryStartStream(ip string, port string, size string) (*results, error) {
+// Mock Download
+func StartReverseStream(ip string, basePort string, serverCount int, size string, title string) (*Results, error) {
+	for i := 0; i < serverCount; i += 1 {
+		port, err := strconv.Atoi(basePort)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert basePort to int: %w", err)
+		}
+		port += i
+
+		res, err := tryStartStream(ip, fmt.Sprint(port), size, title, REVERSE)
+		if err != nil {
+			fmt.Printf("failed to start reverse stream with port %s: %v\n", fmt.Sprint(port), err)
+			continue
+		}
+		return res, nil
+
+	}
+	return nil, fmt.Errorf("failed to send stream, no port available")
+
+}
+
+func tryStartStream(ip string, port string, size string, title string, direction streamDirection) (*Results, error) {
 	args := []string{
 		"-c", ip,
 		"-p", port,
 		"-n", size,
+		"-T", title,
 		"-J", // JSON output
+	}
+
+	if direction == REVERSE {
+		args = append(args, "-R")
 	}
 
 	cmd := exec.Command(app, args...)
@@ -102,7 +136,7 @@ func tryStartStream(ip string, port string, size string) (*results, error) {
 		return nil, fmt.Errorf("failed to run iperf3 cmd: %w", err)
 	}
 
-	results := results{}
+	results := Results{}
 	if err = json.Unmarshal(out, &results); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json results: %w", err)
 	}

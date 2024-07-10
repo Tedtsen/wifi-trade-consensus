@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -25,6 +26,13 @@ type allFFS map[string]FFS // index: provider id
 
 type FFS map[string]float64 // index: provider id
 
+type transactionEndPayload struct {
+	PayloadMeta
+	Rating        float64 `json:"rating"`
+	UplinkSpeed   float64 `json:"uplink_speed"`
+	DownlinkSpeed float64 `json:"downlink_speed"`
+}
+
 type startFlowPayload struct {
 	PayloadMeta
 	Winner providerInfo `json:"winner"`
@@ -39,7 +47,8 @@ type buyPayload struct {
 type informVotePayload struct {
 	PayloadMeta
 	providerInfo
-	FFSnew FFS `json:"FFS_new"`
+	FFSnew FFS     `json:"FFS_new"`
+	Price  float64 `json:"price"`
 }
 
 type consumer struct {
@@ -51,6 +60,7 @@ type consumer struct {
 	iperf3ServerCount    int
 	iperf3Cmds           []*exec.Cmd
 	mutex                sync.Mutex
+	outputDir            string
 }
 
 type transactions map[string]transaction
@@ -64,15 +74,17 @@ type transaction struct {
 	providerCount   int
 	qosRequirements qosRequirements
 	allFFS          allFFS
+	FlowMetrics     flowMetrics `json:"flow_metrics"`
 }
 
 type providers []providerInfo
 
 type providerInfo struct {
-	ProviderID           string `json:"provider_id"`
-	Address              string `json:"address"`
-	Iperf3BaseServerPort string `json:"iperf3_base_server_port"`
-	Iperf3ServerCount    int    `json:"iperf3_server_count"`
+	ProviderID           string  `json:"provider_id"`
+	Address              string  `json:"address"`
+	Iperf3BaseServerPort string  `json:"iperf3_base_server_port"`
+	Iperf3ServerCount    int     `json:"iperf3_server_count"`
+	Price                float64 `json:"price"`
 }
 
 // mapstructure tags are for config file mapping
@@ -83,6 +95,7 @@ type options struct {
 	Iperf3BaseServerPort string          `mapstructure:"iperf3_base_server_port" json:"iperf3_base_server_port"`
 	Iperf3ServerCount    int             `mapstructure:"iperf3_server_count" json:"iperf3_server_count"`
 	QOSRequirements      qosRequirements `mapstructure:"params" json:"params"`
+	OutputDir            string          `mapstructure:"output_dir" json:"output_dir"`
 }
 
 type qosRequirements struct {
@@ -92,6 +105,14 @@ type qosRequirements struct {
 	Mu                    float64 `mapstructure:"mu" json:"mu"`             // uplink weight
 	Delta                 float64 `mapstructure:"delta" json:"delta"`       // downlink weight
 	Epsilon               float64 `mapstructure:"epsilon" json:"epsilon"`   // price range multiplier limit
+}
+
+type flowMetrics struct {
+	ProviderInfo         providerInfo `json:"provider_info"`
+	Price                float64      `json:"price"`
+	PriceConsumer        float64      `json:"price_consumer"`
+	AverageUplinkSpeed   float64      `json:"average_uplink"`
+	AverageDownlinkSpeed float64      `json:"average_downlink"`
 }
 
 func NewOptionsFromConfigFile() (*options, error) {
@@ -136,6 +157,7 @@ func New(opt options) consumer {
 		qosRequirements:      opt.QOSRequirements,
 		iperf3BaseServerPort: opt.Iperf3BaseServerPort,
 		iperf3ServerCount:    opt.Iperf3ServerCount,
+		outputDir:            opt.OutputDir,
 	}
 
 	// Register cleanup for interrupt signal i.e. Ctrl^c
@@ -143,9 +165,14 @@ func New(opt options) consumer {
 	signal.Notify(channel, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-channel
+		if err := consumer.persistResults(); err != nil {
+			fmt.Println("failed to persist results:", err)
+		}
 		if err := consumer.cleanup(); err != nil {
 			fmt.Println("failed to cleanup:", err)
 		}
+		fmt.Println("preparing to shutdown...")
+		time.Sleep(time.Second * 3)
 		os.Exit(1)
 	}()
 
@@ -225,12 +252,36 @@ func (c *consumer) NewIperf3Server() error {
 }
 
 func (c *consumer) cleanup() error {
+	fmt.Println("running cleanup...")
 	for _, cmd := range c.iperf3Cmds {
 		if err := iperf3.StopServer(cmd); err != nil {
 			return fmt.Errorf("failed to stop iperf3 server: %w", err)
 		}
+
 	}
-	fmt.Println("cleanup ran, preparing to shutdown...")
-	time.Sleep(time.Second * 3)
+	fmt.Println("cleanup ran")
+	return nil
+}
+
+func (c *consumer) persistResults() error {
+	fmt.Println("persisting results to file...")
+	err := os.MkdirAll(c.outputDir, 0777)
+	if err != nil {
+		return fmt.Errorf("failed to make new dir: %w", err)
+	}
+
+	jsonResult, err := json.Marshal(c.transactions)
+	if err != nil {
+		return fmt.Errorf("failed to marshal transaction results: %w", err)
+	}
+
+	timeString := time.Now().Format("2006-01-02--15-04-05") // Golang weird time format constants
+	filename := filepath.Join(c.outputDir, "consumer_transactions--"+timeString)
+	err = os.WriteFile(filename, jsonResult, 0777)
+	if err != nil {
+		return fmt.Errorf("failed to write transactions to file: %w", err)
+	}
+
+	fmt.Println("results persisted to:", filename)
 	return nil
 }

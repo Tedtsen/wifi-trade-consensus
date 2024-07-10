@@ -32,14 +32,16 @@ func (p *provider) NewBeaconEmitter(beaconSettings beaconSettings) {
 					continue
 				}
 
+				p.channelUtilizationRate = calculateChannelUtilizationRate(p.activeFlowCount)
+
 				payload := beaconPayload{
 					PayloadMeta: PayloadMeta{
 						PayloadType:   events.BEACON,
 						OriginID:      p.id,
 						OriginAddress: p.address,
 					},
-					ChannelUtilizationRate: 0,
-					RSSI:                   0,
+					ChannelUtilizationRate: p.channelUtilizationRate,
+					RSSI:                   beaconSettings.mockRSSI,
 				}
 
 				jsonPayload, err := json.Marshal(payload)

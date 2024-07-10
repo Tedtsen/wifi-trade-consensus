@@ -54,7 +54,9 @@ type FFS map[string]float64 // index: provider id
 
 type transactionEndPayload struct {
 	PayloadMeta
-	// TODO
+	Rating        float64 `json:"rating"`
+	UplinkSpeed   float64 `json:"uplink_speed"`
+	DownlinkSpeed float64 `json:"downlink_speed"`
 }
 
 type startFlowPayload struct {
@@ -70,7 +72,8 @@ type replyVotePayload struct {
 type informVotePayload struct {
 	PayloadMeta
 	peerInfo
-	FFSnew FFS `json:"FFS_new"`
+	FFSnew FFS     `json:"FFS_new"`
+	Price  float64 `json:"price"`
 }
 
 type informWinnerPayload struct {
@@ -110,6 +113,7 @@ type params struct {
 	KLoad         float64 `mapstructure:"k_load"`          // 0 < kLoad < 1
 	KStrength     float64 `mapstructure:"k_strength"`      // 0 < kStrength < 1
 	Tau           float64 `mapstructure:"tau"`             // z-score threshold
+	Gamma         float64 `mapstructure:"gamma"`           // 0 < gamma < 1
 	DefaultPeerFF float64 `mapstructure:"default_peer_ff"` // -1 < defaultPeerFF < 1
 }
 
@@ -122,6 +126,11 @@ type options struct {
 	UplinkSpeed          float64 `mapstructure:"uplink_speed"`
 	DownlinkSpeed        float64 `mapstructure:"downlink_speed"`
 	Params               params  `mapstructure:"params"`
+	// peer-score default values
+	DefaultPeerUplinkSpeed      float64 `mapstructure:"default_peer_uplink_speed"`
+	DefaultPeerDownlinkSpeed    float64 `mapstructure:"default_peer_downlink_speed"`
+	DefaultPeerLastPrice        float64 `mapstructure:"default_peer_last_price"`
+	DefaultPeerConsumerFeedback float64 `mapstructure:"default_peer_consumer_feedback"`
 }
 
 type provider struct {
@@ -137,7 +146,14 @@ type provider struct {
 	iperf3ServerCount    int
 	iperf3Cmds           []*exec.Cmd
 	mutex                sync.Mutex
-	activeConsumerCount  int
+	activeFlowCount      int
+	// peer-score default values
+	defaultPeerUplinkSpeed      float64
+	defaultPeerDownlinkSpeed    float64
+	defaultPeerLastPrice        float64
+	defaultPeerConsumerFeedback float64
+	// Beacon attributes
+	channelUtilizationRate int // 0-255
 }
 
 // func NewParamsFromConfig() (*params, error) {
@@ -240,6 +256,12 @@ func New(opt options) provider {
 		transactions:         make(transactions),
 		iperf3BaseServerPort: opt.Iperf3BaseServerPort,
 		iperf3ServerCount:    opt.Iperf3ServerCount,
+		activeFlowCount:      0,
+		// peer-score default values
+		defaultPeerUplinkSpeed:      opt.DefaultPeerUplinkSpeed,
+		defaultPeerDownlinkSpeed:    opt.DefaultPeerDownlinkSpeed,
+		defaultPeerLastPrice:        opt.DefaultPeerLastPrice,
+		defaultPeerConsumerFeedback: opt.DefaultPeerConsumerFeedback,
 	}
 
 	// Register cleanup for interrupt signal i.e. Ctrl^c
@@ -331,6 +353,16 @@ func (p *provider) NewListener() error {
 				fmt.Printf("received REPLY_VOTE payload from %s: %v\n", conn.RemoteAddr().String(), replyVotePayload)
 				p.handleReplyVote(replyVotePayload)
 
+			// Handle START_FLOW event
+			case events.START_FLOW:
+				startFlowPayload := startFlowPayload{}
+				if err := json.Unmarshal(data, &startFlowPayload); err != nil {
+					fmt.Printf("failed to unmarshal START_FLOW payload from %s: %v\n", conn.RemoteAddr().String(), err)
+					return
+				}
+				fmt.Printf("received START_FLOW payload from %s: %v\n", conn.RemoteAddr().String(), startFlowPayload)
+				p.handleStartFlow(startFlowPayload)
+
 			// Handle TRANSACTION_END event
 			case events.TRANSACTION_END:
 				transactionEndPayload := transactionEndPayload{}
@@ -340,15 +372,6 @@ func (p *provider) NewListener() error {
 				}
 				fmt.Printf("received TRANSACTION_END payload from %s: %v\n", conn.RemoteAddr().String(), transactionEndPayload)
 				p.handleTransactionEnd(transactionEndPayload)
-
-			case events.START_FLOW:
-				startFlowPayload := startFlowPayload{}
-				if err := json.Unmarshal(data, &startFlowPayload); err != nil {
-					fmt.Printf("failed to unmarshal START_FLOW payload from %s: %v\n", conn.RemoteAddr().String(), err)
-					return
-				}
-				fmt.Printf("received START_FLOW payload from %s: %v\n", conn.RemoteAddr().String(), startFlowPayload)
-				p.handleStartFlow(startFlowPayload)
 
 			// Handle GET_PROVIDER_STATS debug event
 			case events.GET_PROVIDER_STATS:

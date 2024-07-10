@@ -1,13 +1,20 @@
 {
+    "id": "mock-id-0",
     "address": "localhost:8080",
-    "iperf3_server_port": "5001",
+    "iperf3_base_server_port": 10000,
+    "iperf3_server_count": 10,
     "price": 0.0000007,
     "uplink_speed": 30,
     "downlink_speed": 100,
-    "beacon_t_limit": 110,
+    "beacon_t_limit": 30000,
     "k_uptime": 0.5,
     "k_load": 0.5,
     "k_strength": 0.5,
     "tau": 3,
-    "default_peer_ff": 0
+    "gamma": 0.8,
+    "default_peer_ff": 0,
+    "default_peer_uplink_speed": 50.0,
+    "default_peer_downlink_speed": 50.0,
+    "default_peer_last_price": 0.5,
+    "default_peer_consumer_feedback": 0.5
 }

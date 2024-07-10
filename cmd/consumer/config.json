@@ -1,10 +1,13 @@
 {
+    "id": "consumer-id-1",
     "address": "localhost:9000",
-    "iperf3_server_port": "5001",
+    "iperf3_base_server_port": "5001",
+    "iperf3_server_count": "50",
     "price": "0.0000005",
     "uplink": "30",
     "downlink": "50",
     "mu": "0.8",
     "delta": "1",
-    "epsilon": "2"
+    "epsilon": "2",
+    "output_dir": "C:/Dev/AUC/results"
 }

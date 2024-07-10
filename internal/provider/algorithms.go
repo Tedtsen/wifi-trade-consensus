@@ -70,7 +70,7 @@ func calculateZScore(FF float64, mu float64, sigma float64) float64 {
 	return (FF - mu) / (sigma + math.SmallestNonzeroFloat64)
 }
 
-// Calculate FFS (Fittingness Factor Set or plural-prefix) for all other providers except self
+// Calculate FFS (Fittingness Factor Set) for all other providers except self
 func (p *provider) calculateFFS(transaction transaction) map[string]float64 {
 	customerQOS := transaction.customerQOS
 
@@ -110,7 +110,9 @@ func calculateUptime(T_0 int64, T_new int64, k float64) float64 {
 
 func calculateLoad(channelUtilizationRate int, k float64) float64 {
 	exponent := float64(channelUtilizationRate) / (k * 255)
-	return 1 / (1 + math.Pow(math.E, exponent))
+	// TODO: remember to update the equation in the paper, the one below is
+	// correct :D, the higher the channel utilization the, lower the load
+	return 1 - (1 / (1 + math.Pow(math.E, exponent)))
 }
 
 func calculateSignalStrength(RSSI int, k float64) float64 {
@@ -134,4 +136,12 @@ func calculateSpeedFittingness(uplinkConsumer float64, uplinkProvider float64, m
 
 func calculateFittingnessFactor(PF float64, SF float64, uptime float64, load float64, strength float64, feedback float64) float64 {
 	return PF * SF * uptime * load * strength * feedback
+}
+
+func calculateCustomerFeedback(old float64, new float64, gamma float64) float64 {
+	return (gamma * new) + ((1 - gamma) * old)
+}
+
+func calculateChannelUtilizationRate(activeFlowCount int) int {
+	return int(math.Min(255, float64(25*activeFlowCount)))
 }

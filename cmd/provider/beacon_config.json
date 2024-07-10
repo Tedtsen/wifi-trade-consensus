@@ -1,14 +1,9 @@
 {
     "addresses": [
         "localhost:8081",
-        "localhost:8082",
-        "localhost:8083",
-        "localhost:8084",
-        "localhost:8085",
-        "localhost:8086",
-        "localhost:8087",
-        "localhost:8088",
-        "localhost:8089"
+        "localhost:8082"
     ],
-    "interval": 110
+    "interval": 10000,
+    "mock_channel_utilization_rate": 125,
+    "mock_rssi": 125
 }
