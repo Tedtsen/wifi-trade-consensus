@@ -137,9 +137,30 @@ func (p *provider) handleRequestVote(payload requestVotePayload) {
 
 	// TODO wait for all connections
 	// Update peer's price and update its FF
+	p.mutex.Lock()
 	peerScore := p.peerScoreMatrix[payload.CandidateID]
 	peerScore.lastPrice = payload.Price
 	p.peerScoreMatrix[payload.CandidateID] = peerScore
+
+	// Check if all peers' prices have been received
+	hasReceivedAll := false
+	for {
+		hasReceivedAll = true
+		for _, peer := range trans.peerList {
+			if peer.ProviderID == p.id {
+				continue
+			} else if p.peerScoreMatrix[peer.ProviderID].lastPrice == 0 {
+				hasReceivedAll = false
+				fmt.Println("haven't received price for provider:", peer.ProviderID)
+			}
+		}
+
+		p.mutex.Unlock()
+		if hasReceivedAll {
+			break
+		}
+		time.Sleep(time.Millisecond * 50)
+	}
 
 	trans.allFFS[p.id] = p.calculateFFS(p.transactions[transactionID])
 

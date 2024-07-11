@@ -193,6 +193,7 @@ func (c *consumer) handleInformVote(payload informVotePayload) {
 	transaction.FlowMetrics.AverageUplinkSpeed = actualUplink
 	transaction.FlowMetrics.AverageDownlinkSpeed = actualDownlink
 	transaction.FlowMetrics.ProviderInfo = winner
+	transaction.FlowMetrics.TransactionStartTimestamp = transaction.transactionTime
 	c.transactions[transactionID] = transaction
 
 	uplinkRequirement := c.qosRequirements.UplinkSpeedConsumer

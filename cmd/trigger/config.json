@@ -1,0 +1,32 @@
+{
+    "consumer_address": "localhost:9000",
+    "buy_event_count": 50,
+    "buy_event_interval_mean": 30,
+    "buy_event_interval_std_dev": 5,
+    "uplink_mean": 50,
+    "uplink_std_dev": 10,
+    "downlink_mean": 100,
+    "downlink_std_dev": 10,
+    "price_mean": 0.5,
+    "price_std_dev": 0.2,
+    "mu_mean": 0.8,
+    "mu_std_dev": 0.1,
+    "delta_mean": 1,
+    "delta_std_dev": 0.1,
+    "epsilon_mean": 2,
+    "epsilon_std_dev": 0.1,
+    "provider_list": [
+        {
+            "provider_id": "mock-id-0",
+            "address": "host.docker.internal:8080"
+        },
+        {
+            "provider_id": "mock-id-1",
+            "address": "host.docker.internal:8081"
+        },
+        {
+            "provider_id": "mock-id-2",
+            "address": "host.docker.internal:8082"
+        }
+    ]
+}

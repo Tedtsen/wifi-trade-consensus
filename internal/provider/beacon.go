@@ -19,47 +19,44 @@ type beaconSettings struct {
 }
 
 func (p *provider) NewBeaconEmitter(beaconSettings beaconSettings) {
-	// Run emitter concurrently
-	go func() {
-		for {
-			// Wait for beacon interval
-			time.Sleep(time.Millisecond * time.Duration(beaconSettings.interval))
-			for _, peer := range beaconSettings.peers {
-				// fmt.Println("sending beacon to:", peer.address)
-				conn, err := net.Dial("tcp", peer.Address)
-				if err != nil {
-					fmt.Printf("failed to send beacon to %s: %v\n", peer.Address, err)
-					continue
-				}
-
-				p.channelUtilizationRate = calculateChannelUtilizationRate(p.activeFlowCount)
-
-				payload := beaconPayload{
-					PayloadMeta: PayloadMeta{
-						PayloadType:   events.BEACON,
-						OriginID:      p.id,
-						OriginAddress: p.address,
-					},
-					ChannelUtilizationRate: p.channelUtilizationRate,
-					RSSI:                   beaconSettings.mockRSSI,
-				}
-
-				jsonPayload, err := json.Marshal(payload)
-				if err != nil {
-					fmt.Println("failed to marshal beacon payload:", err)
-					continue
-				}
-
-				// Send beacon to each peer concurrently
-				go func(conn net.Conn) {
-					if _, err := conn.Write(jsonPayload); err != nil {
-						fmt.Println("failed to send beacon:", err)
-					}
-					conn.Close()
-				}(conn)
+	for {
+		// Wait for beacon interval
+		time.Sleep(time.Millisecond * time.Duration(beaconSettings.interval))
+		for _, peer := range beaconSettings.peers {
+			// fmt.Println("sending beacon to:", peer.address)
+			conn, err := net.Dial("tcp", peer.Address)
+			if err != nil {
+				fmt.Printf("failed to send beacon to %s: %v\n", peer.Address, err)
+				continue
 			}
+
+			p.channelUtilizationRate = calculateChannelUtilizationRate(p.activeFlowCount)
+
+			payload := beaconPayload{
+				PayloadMeta: PayloadMeta{
+					PayloadType:   events.BEACON,
+					OriginID:      p.id,
+					OriginAddress: p.address,
+				},
+				ChannelUtilizationRate: p.channelUtilizationRate,
+				RSSI:                   beaconSettings.mockRSSI,
+			}
+
+			jsonPayload, err := json.Marshal(payload)
+			if err != nil {
+				fmt.Println("failed to marshal beacon payload:", err)
+				continue
+			}
+
+			// Send beacon to each peer concurrently
+			go func(conn net.Conn) {
+				if _, err := conn.Write(jsonPayload); err != nil {
+					fmt.Println("failed to send beacon:", err)
+				}
+				conn.Close()
+			}(conn)
 		}
-	}()
+	}
 }
 
 func NewBeaconSettings(addresses []string, interval int, mockChannelUtil int, mockRSSI int) beaconSettings {

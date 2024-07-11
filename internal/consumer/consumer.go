@@ -108,11 +108,12 @@ type qosRequirements struct {
 }
 
 type flowMetrics struct {
-	ProviderInfo         providerInfo `json:"provider_info"`
-	Price                float64      `json:"price"`
-	PriceConsumer        float64      `json:"price_consumer"`
-	AverageUplinkSpeed   float64      `json:"average_uplink"`
-	AverageDownlinkSpeed float64      `json:"average_downlink"`
+	ProviderInfo              providerInfo `json:"provider_info"`
+	Price                     float64      `json:"price"`
+	PriceConsumer             float64      `json:"price_consumer"`
+	AverageUplinkSpeed        float64      `json:"average_uplink"`
+	AverageDownlinkSpeed      float64      `json:"average_downlink"`
+	TransactionStartTimestamp int64        `json:"transaction_start_timestamp"`
 }
 
 func NewOptionsFromConfigFile() (*options, error) {
