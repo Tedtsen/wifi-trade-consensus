@@ -1,0 +1,50 @@
+version: "3.7"
+services:
+  node0:
+    container_name: "node0"
+    image: "node0711-1:latest"
+    ports:
+      - "10010-10099:10010-10099"
+      - "8080:8080"
+    environment:
+      node_num: "0"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - NET_ADMIN
+  node1:
+    container_name: "node1"
+    image: "node0711-1:latest"
+    ports:
+      - "10100-10199:10100-10199"
+      - "8081:8081"
+    environment:
+      node_num: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - NET_ADMIN
+  node2:
+    container_name: "node2"
+    image: "node0711-1:latest"
+    ports:
+      - "10200-10299:10200-10299"
+      - "8082:8082"
+    environment:
+      node_num: "2"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - NET_ADMIN
+  node3:
+    container_name: "node3"
+    image: "node0711-1:latest"
+    ports:
+      - "10300-10399:10300-10399"
+      - "8083:8083"
+    environment:
+      node_num: "3"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - NET_ADMIN

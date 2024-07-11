@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o docker-build ./cmd/provider
 # But we can document in the Dockerfile what ports
 # the application is going to listen on by default.
 # https://docs.docker.com/reference/dockerfile/#expose
-EXPOSE 8888
+EXPOSE 8080-8089 10000-11000
 
 RUN apt -y update
 RUN apt -y install iperf3
@@ -31,4 +31,4 @@ RUN apt -y install iproute2
 # RUN bash ./app/scripts/network_limiter.sh
 
 # Run
-CMD ["/app/docker-build"]
+CMD ["sh", "-c", "/app/scripts/network_limiter.sh && /app/docker-build"]
