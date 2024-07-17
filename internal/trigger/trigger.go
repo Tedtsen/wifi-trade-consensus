@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 	"wifi-trade-consensus/internal/pkg/events"
 	"wifi-trade-consensus/internal/pkg/payload"
@@ -24,12 +25,13 @@ type providerInfo struct {
 }
 
 type qosRequirements struct {
-	PriceConsumer         float64 `mapstructure:"price" json:"price"`       // consumer price requirement
-	UplinkSpeedConsumer   float64 `mapstructure:"uplink" json:"uplink"`     // consumer uplink speed requirement
-	DownlinkSpeedConsumer float64 `mapstructure:"downlink" json:"downlink"` // consumer downlink speed requirement
-	Mu                    float64 `mapstructure:"mu" json:"mu"`             // uplink weight
-	Delta                 float64 `mapstructure:"delta" json:"delta"`       // downlink weight
-	Epsilon               float64 `mapstructure:"epsilon" json:"epsilon"`   // price range multiplier limit
+	PriceConsumer         float64 `mapstructure:"price" json:"price"`         // consumer price requirement
+	UplinkSpeedConsumer   float64 `mapstructure:"uplink" json:"uplink"`       // consumer uplink speed requirement
+	DownlinkSpeedConsumer float64 `mapstructure:"downlink" json:"downlink"`   // consumer downlink speed requirement
+	Mu                    float64 `mapstructure:"mu" json:"mu"`               // uplink weight
+	Delta                 float64 `mapstructure:"delta" json:"delta"`         // downlink weight
+	Epsilon               float64 `mapstructure:"epsilon" json:"epsilon"`     // price range multiplier limit
+	FlowSize              string  `mapstructure:"flow_size" json:"flow_size"` // size of data to upload/download to/from provider
 }
 
 type buyPayload struct {
@@ -39,23 +41,41 @@ type buyPayload struct {
 }
 
 type options struct {
-	ConsumerAddress        string    `mapstructure:"consumer_address"`
-	BuyEventCount          int       `mapstructure:"buy_event_count"`
-	BuyEventIntervalMean   float64   `mapstructure:"buy_event_interval_mean"` // seconds
-	BuyEventIntervalStdDev float64   `mapstructure:"buy_event_interval_std_dev"`
-	UplinkMean             float64   `mapstructure:"uplink_mean"`
-	UplinkStdDev           float64   `mapstructure:"uplink_std_dev"`
-	DownlinkMean           float64   `mapstructure:"downlink_mean"`
-	DownlinkStdDev         float64   `mapstructure:"downlink_std_dev"`
-	PriceMean              float64   `mapstructure:"price_mean"`
-	PriceStdDev            float64   `mapstructure:"price_std_dev"`
-	MuMean                 float64   `mapstructure:"mu_mean"` // uplink weight
-	MuStdDev               float64   `mapstructure:"mu_std_dev"`
-	DeltaMean              float64   `mapstructure:"delta_mean"` // downlink weight
-	DeltaStdDev            float64   `mapstructure:"delta_std_dev"`
-	EpsilonMean            float64   `mapstructure:"epsilon_mean"` // price range multiplier limit
-	EpsilonStdDev          float64   `mapstructure:"epsilon_std_dev"`
-	ProviderList           providers `mapstructure:"provider_list"`
+	ConsumerAddress         string    `mapstructure:"consumer_address"`
+	BuyEventCount           int       `mapstructure:"buy_event_count"`
+	BuyEventIntervalMean    float64   `mapstructure:"buy_event_interval_mean"` // seconds
+	BuyEventIntervalStdDev  float64   `mapstructure:"buy_event_interval_std_dev"`
+	BuyEventIntervalLowest  float64   `mapstructure:"buy_event_interval_lowest"`
+	BuyEventIntervalHighest float64   `mapstructure:"buy_event_interval_highest"`
+	UplinkMean              float64   `mapstructure:"uplink_mean"`
+	UplinkStdDev            float64   `mapstructure:"uplink_std_dev"`
+	UplinkLowest            float64   `mapstructure:"uplink_lowest"`
+	UplinkHighest           float64   `mapstructure:"uplink_highest"`
+	DownlinkMean            float64   `mapstructure:"downlink_mean"`
+	DownlinkStdDev          float64   `mapstructure:"downlink_std_dev"`
+	DownlinkLowest          float64   `mapstructure:"downlink_lowest"`
+	DownlinkHighest         float64   `mapstructure:"downlink_highest"`
+	PriceMean               float64   `mapstructure:"price_mean"`
+	PriceStdDev             float64   `mapstructure:"price_std_dev"`
+	PriceLowest             float64   `mapstructure:"price_lowest"`
+	PriceHighest            float64   `mapstructure:"price_highest"`
+	MuMean                  float64   `mapstructure:"mu_mean"` // uplink weight
+	MuStdDev                float64   `mapstructure:"mu_std_dev"`
+	MuLowest                float64   `mapstructure:"mu_lowest"`
+	MuHighest               float64   `mapstructure:"mu_highest"`
+	DeltaMean               float64   `mapstructure:"delta_mean"` // downlink weight
+	DeltaStdDev             float64   `mapstructure:"delta_std_dev"`
+	DeltaLowest             float64   `mapstructure:"delta_lowest"`
+	DeltaHighest            float64   `mapstructure:"delta_highest"`
+	EpsilonMean             float64   `mapstructure:"epsilon_mean"` // price range multiplier limit
+	EpsilonStdDev           float64   `mapstructure:"epsilon_std_dev"`
+	EpsilonLowest           float64   `mapstructure:"epsilon_lowest"`
+	EpsilonHighest          float64   `mapstructure:"epsilon_highest"`
+	FlowSizeMean            float64   `mapstructure:"flow_size_mean"`
+	FlowSizeStdDev          float64   `mapstructure:"flow_size_std_dev"`
+	FlowSizeLowest          float64   `mapstructure:"flow_size_lowest"`
+	FlowSizeHighest         float64   `mapstructure:"flow_size_highest"`
+	ProviderList            providers `mapstructure:"provider_list"`
 }
 
 type trigger struct {
@@ -96,7 +116,7 @@ func New(opt *options) trigger {
 
 func (t *trigger) Start() {
 	for i := 0; i < t.BuyEventCount; i++ {
-		interval := getRandomizedVal(t.BuyEventIntervalMean, t.BuyEventIntervalStdDev)
+		interval := getRandomizedVal(t.BuyEventIntervalMean, t.BuyEventIntervalStdDev, 1, 300)
 		time.Sleep(time.Second * time.Duration(interval))
 
 		conn, err := net.Dial("tcp", t.ConsumerAddress)
@@ -110,12 +130,18 @@ func (t *trigger) Start() {
 			},
 			ProviderList: t.ProviderList,
 			qosRequirements: qosRequirements{
-				PriceConsumer:         getRandomizedVal(t.PriceMean, t.PriceStdDev),
-				UplinkSpeedConsumer:   getRandomizedVal(t.UplinkMean, t.UplinkStdDev),
-				DownlinkSpeedConsumer: getRandomizedVal(t.DownlinkMean, t.DownlinkStdDev),
-				Mu:                    getRandomizedVal(t.MuMean, t.MuStdDev),
-				Delta:                 getRandomizedVal(t.DeltaMean, t.DeltaStdDev),
-				Epsilon:               getRandomizedVal(t.EpsilonMean, t.EpsilonStdDev),
+				PriceConsumer:         getRandomizedVal(t.PriceMean, t.PriceStdDev, t.PriceLowest, t.PriceHighest),
+				UplinkSpeedConsumer:   getRandomizedVal(t.UplinkMean, t.UplinkStdDev, t.UplinkLowest, t.UplinkHighest),
+				DownlinkSpeedConsumer: getRandomizedVal(t.DownlinkMean, t.DownlinkStdDev, t.DownlinkLowest, t.DownlinkHighest),
+				Mu:                    getRandomizedVal(t.MuMean, t.MuStdDev, t.MuLowest, t.MuHighest),
+				Delta:                 getRandomizedVal(t.DeltaMean, t.DeltaStdDev, t.DeltaLowest, t.DeltaHighest),
+				Epsilon:               getRandomizedVal(t.EpsilonMean, t.EpsilonStdDev, t.EpsilonLowest, t.EpsilonHighest),
+				FlowSize: strconv.FormatFloat(
+					getRandomizedVal(t.FlowSizeMean, t.FlowSizeStdDev, t.FlowSizeLowest, t.FlowSizeHighest),
+					'f',
+					2,
+					64,
+				) + "M",
 			},
 		}
 

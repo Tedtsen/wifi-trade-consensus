@@ -61,6 +61,7 @@ type consumer struct {
 	iperf3Cmds           []*exec.Cmd
 	mutex                sync.Mutex
 	outputDir            string
+	tau                  float64
 }
 
 type transactions map[string]transaction
@@ -96,15 +97,17 @@ type options struct {
 	Iperf3ServerCount    int             `mapstructure:"iperf3_server_count" json:"iperf3_server_count"`
 	QOSRequirements      qosRequirements `mapstructure:"params" json:"params"`
 	OutputDir            string          `mapstructure:"output_dir" json:"output_dir"`
+	Tau                  float64         `mapstructure:"tau" json:"tau"`
 }
 
 type qosRequirements struct {
-	PriceConsumer         float64 `mapstructure:"price" json:"price"`       // consumer price requirement
-	UplinkSpeedConsumer   float64 `mapstructure:"uplink" json:"uplink"`     // consumer uplink speed requirement
-	DownlinkSpeedConsumer float64 `mapstructure:"downlink" json:"downlink"` // consumer downlink speed requirement
-	Mu                    float64 `mapstructure:"mu" json:"mu"`             // uplink weight
-	Delta                 float64 `mapstructure:"delta" json:"delta"`       // downlink weight
-	Epsilon               float64 `mapstructure:"epsilon" json:"epsilon"`   // price range multiplier limit
+	PriceConsumer         float64 `mapstructure:"price" json:"price"`         // consumer price requirement
+	UplinkSpeedConsumer   float64 `mapstructure:"uplink" json:"uplink"`       // consumer uplink speed requirement
+	DownlinkSpeedConsumer float64 `mapstructure:"downlink" json:"downlink"`   // consumer downlink speed requirement
+	Mu                    float64 `mapstructure:"mu" json:"mu"`               // uplink weight
+	Delta                 float64 `mapstructure:"delta" json:"delta"`         // downlink weight
+	Epsilon               float64 `mapstructure:"epsilon" json:"epsilon"`     // price range multiplier limit
+	FlowSize              string  `mapstructure:"flow_size" json:"flow_size"` // size of data to upload/download to/from provider
 }
 
 type flowMetrics struct {
@@ -159,6 +162,7 @@ func New(opt options) consumer {
 		iperf3BaseServerPort: opt.Iperf3BaseServerPort,
 		iperf3ServerCount:    opt.Iperf3ServerCount,
 		outputDir:            opt.OutputDir,
+		tau:                  opt.Tau,
 	}
 
 	// Register cleanup for interrupt signal i.e. Ctrl^c

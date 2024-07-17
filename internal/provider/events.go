@@ -12,8 +12,11 @@ import (
 func (p *provider) handleBeaconPayload(payload beaconPayload) {
 	currentTimestampMS := time.Now().UnixMilli()
 
+	p.mutex.Lock()
 	entry, exists := p.peerScoreMatrix[payload.OriginID]
+	p.mutex.Unlock()
 	if !exists {
+		p.mutex.Lock()
 		p.peerScoreMatrix[payload.OriginID] = peerScore{
 			uptime:           calculateUptime(currentTimestampMS, currentTimestampMS, p.params.KUptime),
 			signalStrength:   calculateSignalStrength(payload.RSSI, p.params.KStrength),
@@ -27,6 +30,7 @@ func (p *provider) handleBeaconPayload(payload beaconPayload) {
 				last:    currentTimestampMS,
 			},
 		}
+		p.mutex.Unlock()
 		return
 	}
 
@@ -51,7 +55,9 @@ func (p *provider) handleBeaconPayload(payload beaconPayload) {
 	entry.uptime = calculateUptime(*T_0, T_n1, p.params.KUptime)
 	entry.signalStrength = calculateSignalStrength(payload.RSSI, p.params.KStrength)
 	entry.load = calculateLoad(payload.ChannelUtilizationRate, p.params.KLoad)
+	p.mutex.Lock()
 	p.peerScoreMatrix[payload.OriginID] = entry
+	p.mutex.Unlock()
 }
 
 // Handle BUY event and respond by sending REQUEST_VOTE event
@@ -68,10 +74,12 @@ func (p *provider) handleBuyEvent(payload buyPayload) {
 		customerQOS:     payload.customerQOS,
 	}
 
+	p.mutex.Lock()
 	FFS := p.calculateFFS(p.transactions[payload.TransactionID.String()])
 
 	// Save FFS calculation to current transaction's allFFS, indexed with self id
 	p.transactions[payload.TransactionID.String()].allFFS[p.id] = FFS
+	p.mutex.Unlock()
 
 	fmt.Println("FFS calculation:", FFS)
 
@@ -90,6 +98,11 @@ func (p *provider) handleBuyEvent(payload buyPayload) {
 			}
 			defer conn.Close()
 
+			myPrice := p.price
+			if p.isFaulty {
+				myPrice = getRandomizedVal(p.price, 0.5, 0.1, 1)
+			}
+
 			// Build response
 			response := requestVotePayload{
 				PayloadMeta: PayloadMeta{
@@ -99,7 +112,7 @@ func (p *provider) handleBuyEvent(payload buyPayload) {
 					OriginAddress: p.address,
 				},
 				CandidateID: p.id,
-				Price:       p.price,
+				Price:       myPrice,
 			}
 
 			// Send REQUEST_VOTE event
@@ -121,7 +134,27 @@ func (p *provider) handleBuyEvent(payload buyPayload) {
 
 // Handle REQUEST_VOTE event and respond by sending REPLY_VOTE event
 func (p *provider) handleRequestVote(payload requestVotePayload) {
-	conn, err := net.Dial("tcp", payload.OriginAddress)
+	p.mutex.Lock()
+	senderAddress, err := p.getPeerAddressByID(payload.TransactionID.String(), payload.OriginID)
+	p.mutex.Unlock()
+	if err != nil {
+
+		for retryCount := 0; retryCount < 5; retryCount++ {
+			time.Sleep(time.Millisecond * 50)
+			p.mutex.Lock()
+			senderAddress, err = p.getPeerAddressByID(payload.TransactionID.String(), payload.OriginID)
+			p.mutex.Unlock()
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			fmt.Printf("failed to obtain sender address: %v\n", err)
+			return
+		}
+	}
+
+	conn, err := net.Dial("tcp", senderAddress)
 	if err != nil {
 		fmt.Printf("failed to dial remote peer: %v\n", err)
 		return
@@ -141,10 +174,12 @@ func (p *provider) handleRequestVote(payload requestVotePayload) {
 	peerScore := p.peerScoreMatrix[payload.CandidateID]
 	peerScore.lastPrice = payload.Price
 	p.peerScoreMatrix[payload.CandidateID] = peerScore
+	p.mutex.Unlock()
 
 	// Check if all peers' prices have been received
 	hasReceivedAll := false
 	for {
+		p.mutex.Lock()
 		hasReceivedAll = true
 		for _, peer := range trans.peerList {
 			if peer.ProviderID == p.id {
@@ -162,9 +197,15 @@ func (p *provider) handleRequestVote(payload requestVotePayload) {
 		time.Sleep(time.Millisecond * 50)
 	}
 
-	trans.allFFS[p.id] = p.calculateFFS(p.transactions[transactionID])
+	p.mutex.Lock()
+	if p.isFaulty {
+		trans.allFFS[p.id] = p.calculateFaultyFFS(p.transactions[transactionID])
+	} else {
+		trans.allFFS[p.id] = p.calculateFFS(p.transactions[transactionID])
+	}
 
 	FFS := trans.allFFS[p.id]
+	p.mutex.Unlock()
 
 	// // Save FFS calculation to current transaction's allFFS, indexed with self id (moved to handle BUY)
 	// p.transactions[payload.TransactionID.String()].allFFS[p.id] = FFS
@@ -225,7 +266,12 @@ func (p *provider) handleReplyVote(payload replyVotePayload) {
 	}
 
 	fmt.Println("allFFS calculation:", allFFS)
-	FFSnew := p.calculateFFSnew(transaction.peerList, transaction.allFFS)
+	var FFSnew FFS
+	if p.isFaulty {
+		FFSnew = p.calculateFaultyFFSnew(transaction.peerList, transaction.allFFS)
+	} else {
+		FFSnew = p.calculateFFSnew(transaction.peerList, transaction.allFFS)
+	}
 	fmt.Println("FFSnew calculation:", FFSnew)
 
 	// Build response
@@ -286,7 +332,9 @@ func (p *provider) handleStartFlow(payload startFlowPayload) {
 	transaction.winner = payload.Winner
 
 	// Reassign
-	p.transactions[payload.OriginID] = transaction
+	p.mutex.Lock()
+	p.transactions[payload.TransactionID.String()] = transaction
+	p.mutex.Unlock()
 }
 
 func (p *provider) handleTransactionEnd(payload transactionEndPayload) {
@@ -303,9 +351,11 @@ func (p *provider) handleTransactionEnd(payload transactionEndPayload) {
 	}
 
 	for _, peer := range transaction.peerList {
-		if peer.ProviderID == p.id {
+		if peer.ProviderID != transaction.winner.ProviderID {
 			continue
 		}
+
+		p.mutex.Lock()
 		peerScore := p.peerScoreMatrix[peer.ProviderID]
 
 		peerScore.uplinkSpeed = payload.UplinkSpeed
@@ -315,6 +365,7 @@ func (p *provider) handleTransactionEnd(payload transactionEndPayload) {
 
 		// Reassign
 		p.peerScoreMatrix[peer.ProviderID] = peerScore
+		p.mutex.Unlock()
 	}
 }
 
@@ -355,4 +406,18 @@ func (p *provider) handleGetProviderStats(conn net.Conn) {
 		fmt.Println("n bytes written", n)
 		return
 	}
+}
+
+func (p *provider) getPeerAddressByID(transactionID string, peerID string) (string, error) {
+	transaction, exists := p.transactions[transactionID]
+	if !exists {
+		return "", fmt.Errorf("transaction doesn't exist: %s", transactionID)
+	}
+
+	for _, peer := range transaction.peerList {
+		if peer.ProviderID == peerID {
+			return peer.Address, nil
+		}
+	}
+	return "", fmt.Errorf("failed to find peer info: %s", peerID)
 }

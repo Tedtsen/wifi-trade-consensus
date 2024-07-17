@@ -2,19 +2,22 @@ version: "3.7"
 services:
   node0:
     container_name: "node0"
-    image: "node0711-1:latest"
+    privileged: true
+    image: ${IMAGE_NAME}
     ports:
       - "10010-10099:10010-10099"
+      - "7777:7777"
       - "8080:8080"
     environment:
       node_num: "0"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:
-      - NET_ADMIN
+      - ALL
   node1:
     container_name: "node1"
-    image: "node0711-1:latest"
+    privileged: true
+    image: ${IMAGE_NAME}
     ports:
       - "10100-10199:10100-10199"
       - "8081:8081"
@@ -23,10 +26,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:
-      - NET_ADMIN
+      - ALL
   node2:
     container_name: "node2"
-    image: "node0711-1:latest"
+    privileged: true
+    image: ${IMAGE_NAME}
     ports:
       - "10200-10299:10200-10299"
       - "8082:8082"
@@ -35,10 +39,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:
-      - NET_ADMIN
+      - ALL
   node3:
     container_name: "node3"
-    image: "node0711-1:latest"
+    privileged: true
+    image: ${IMAGE_NAME}
     ports:
       - "10300-10399:10300-10399"
       - "8083:8083"
@@ -47,4 +52,87 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:
-      - NET_ADMIN
+      - ALL
+  node4:
+    container_name: "node4"
+    privileged: true
+    image: ${IMAGE_NAME}
+    ports:
+      - "10400-10499:10400-10499"
+      - "8084:8084"
+    environment:
+      node_num: "4"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - ALL
+  node5:
+    container_name: "node5"
+    privileged: true
+    image: ${IMAGE_NAME}
+    ports:
+      - "10500-10599:10500-10599"
+      - "8085:8085"
+    environment:
+      node_num: "5"
+      is_faulty: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - ALL
+  node6:
+    container_name: "node6"
+    privileged: true
+    image: ${IMAGE_NAME}
+    ports:
+      - "10600-10699:10600-10699"
+      - "8086:8086"
+    environment:
+      node_num: "6"
+      is_faulty: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - ALL
+  node7:
+    container_name: "node7"
+    privileged: true
+    image: ${IMAGE_NAME}
+    ports:
+      - "10700-10799:10700-10799"
+      - "8087:8087"
+    environment:
+      node_num: "7"
+      is_faulty: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - ALL
+  node8:
+    container_name: "node8"
+    privileged: true
+    image: ${IMAGE_NAME}
+    ports:
+      - "10800-10899:10800-10899"
+      - "8088:8088"
+    environment:
+      node_num: "8"
+      is_faulty: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - ALL
+  node9:
+    container_name: "node9"
+    privileged: true
+    image: ${IMAGE_NAME}
+    ports:
+      - "10900-10999:10900-10999"
+      - "8089:8089"
+    environment:
+      node_num: "9"
+      is_faulty: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - ALL

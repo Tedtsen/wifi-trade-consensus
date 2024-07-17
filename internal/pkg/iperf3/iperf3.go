@@ -1,7 +1,6 @@
 package iperf3
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -56,8 +55,8 @@ func startServer(port string) (*exec.Cmd, error) {
 
 	cmd := exec.Command(app, args...)
 
-	buf := &bytes.Buffer{}
-	cmd.Stdout = buf
+	// buf := &bytes.Buffer{}
+	// cmd.Stdout = buf
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to run iperf3 cmd: %w", err)
@@ -143,5 +142,10 @@ func tryStartStream(ip string, port string, size string, title string, direction
 
 	jsonResults, _ := json.MarshalIndent(results, "\t", "\t")
 	fmt.Printf("iperf3 stream output: %s\n", string(jsonResults))
+
+	// if _, err := cmd.Process.Wait(); err != nil {
+	// 	fmt.Println("failed to wait for iperf3 cmd process to exit:", err)
+	// }
+
 	return &results, nil
 }

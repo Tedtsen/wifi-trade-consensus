@@ -102,7 +102,7 @@ func (c *consumer) handleInformVote(payload informVotePayload) {
 	}
 
 	// Calculate FFSfinal and determine winner
-	FFSfinal, winner := calculateFFSfinal(transaction)
+	FFSfinal, winner := c.calculateFFSfinal(transaction)
 
 	fmt.Println("FFSfinal:", FFSfinal)
 
@@ -148,7 +148,7 @@ func (c *consumer) handleInformVote(payload informVotePayload) {
 	upChannel := make(chan *iperf3.Results)
 	go func(upChannel chan *iperf3.Results) {
 		iperf3Res, err := iperf3.StartStream(winnerIP, winner.Iperf3BaseServerPort, winner.Iperf3ServerCount,
-			"1G", payload.TransactionID.String())
+			transaction.qosRequirements.FlowSize, payload.TransactionID.String())
 		if err != nil {
 			fmt.Println("failed to send stream to winner:", err)
 			upChannel <- nil
@@ -156,10 +156,11 @@ func (c *consumer) handleInformVote(payload informVotePayload) {
 		upChannel <- iperf3Res
 	}(upChannel)
 
+	time.Sleep(time.Millisecond * 10)
 	downChannel := make(chan *iperf3.Results)
 	go func(downChannel chan *iperf3.Results) {
 		iperf3Res, err := iperf3.StartReverseStream(winnerIP, winner.Iperf3BaseServerPort, winner.Iperf3ServerCount,
-			"1G", payload.TransactionID.String())
+			transaction.qosRequirements.FlowSize, payload.TransactionID.String())
 		if err != nil {
 			fmt.Println("failed to send reverse stream to winner:", err)
 			downChannel <- nil
@@ -171,12 +172,14 @@ func (c *consumer) handleInformVote(payload informVotePayload) {
 	downlinkBitsPerSecond := 0.0
 	uplinkResults := <-upChannel
 	downlinkResults := <-downChannel
-	fmt.Println("received downlink results:", downlinkResults)
 	if uplinkResults != nil {
 		uplinkBitsPerSecond = uplinkResults.End.SumSent.BitsPerSecond
 	}
 	if downlinkResults != nil {
+		fmt.Println("received downlink results:", *downlinkResults)
 		downlinkBitsPerSecond = downlinkResults.End.SumSent.BitsPerSecond
+	} else {
+		fmt.Println("received nil downlink results")
 	}
 
 	// Calculate upload and downlink speeds

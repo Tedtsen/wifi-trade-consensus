@@ -1,20 +1,38 @@
 {
-    "consumer_address": "localhost:9000",
-    "buy_event_count": 50,
-    "buy_event_interval_mean": 30,
-    "buy_event_interval_std_dev": 5,
+    "consumer_address": "192.168.0.109:9000",
+    "buy_event_count": 100,
+    "buy_event_interval_mean": 60,
+    "buy_event_interval_std_dev": 10,
+    "buy_event_interval_lowest": 30,
+    "buy_event_interval_highest": 120,
     "uplink_mean": 50,
-    "uplink_std_dev": 10,
-    "downlink_mean": 100,
-    "downlink_std_dev": 10,
+    "uplink_std_dev": 25,
+    "uplink_lowest": 10,
+    "uplink_highest": 100,
+    "downlink_mean": 50,
+    "downlink_std_dev": 25,
+    "downlink_lowest": 10,
+    "downlink_highest": 100,
     "price_mean": 0.5,
-    "price_std_dev": 0.2,
+    "price_std_dev": 0.25,
+    "price_lowest": 0.1,
+    "price_highest": 1,
     "mu_mean": 0.8,
-    "mu_std_dev": 0.1,
-    "delta_mean": 1,
-    "delta_std_dev": 0.1,
+    "mu_std_dev": 0.2,
+    "mu_lowest": 0.1,
+    "mu_highest": 0.99,
+    "delta_mean": 0.8,
+    "delta_std_dev": 0.2,
+    "delta_lowest": 0.1,
+    "delta_highest": 0.99,
     "epsilon_mean": 2,
-    "epsilon_std_dev": 0.1,
+    "epsilon_std_dev": 1,
+    "epsilon_lowest": 1,
+    "epsilon_highest": 3,
+    "flow_size_mean": 500,
+    "flow_size_std_dev": 250,
+    "flow_size_lowest": 100,
+    "flow_size_highest": 1024,
     "provider_list": [
         {
             "provider_id": "mock-id-0",
@@ -27,6 +45,34 @@
         {
             "provider_id": "mock-id-2",
             "address": "host.docker.internal:8082"
+        },
+        {
+            "provider_id": "mock-id-3",
+            "address": "host.docker.internal:8083"
+        },
+        {
+            "provider_id": "mock-id-4",
+            "address": "host.docker.internal:8084"
+        },
+        {
+            "provider_id": "mock-id-5",
+            "address": "host.docker.internal:8085"
+        },
+        {
+            "provider_id": "mock-id-6",
+            "address": "host.docker.internal:8086"
+        },
+        {
+            "provider_id": "mock-id-7",
+            "address": "host.docker.internal:8087"
+        },
+        {
+            "provider_id": "mock-id-8",
+            "address": "host.docker.internal:8088"
+        },
+        {
+            "provider_id": "mock-id-9",
+            "address": "host.docker.internal:8089"
         }
     ]
 }

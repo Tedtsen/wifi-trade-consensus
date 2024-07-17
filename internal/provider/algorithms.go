@@ -3,6 +3,7 @@ package provider
 import (
 	"fmt"
 	"math"
+	"math/rand"
 
 	"github.com/google/uuid"
 )
@@ -50,18 +51,75 @@ func (p *provider) calculateFFnew(targetPeer peerInfo, peerList peers, allFFS al
 	// Calculate FFnew
 	sampleN := 0
 	FFnew := 0.0
-	if calculateZScore(selfTargetPeerFF, FFmu, FFsigma) <= p.params.Tau {
+	if math.Abs(calculateZScore(selfTargetPeerFF, FFmu, FFsigma)) <= p.params.Tau {
 		FFnew = selfTargetPeerFF
 		sampleN += 1
 	}
 	for _, peer := range peerList {
 		zScore := calculateZScore(allFFS[peer.ProviderID][targetPeer.ProviderID], FFmu, FFsigma)
-		if zScore <= p.params.Tau {
+		if math.Abs(zScore) <= p.params.Tau {
 			FFnew += allFFS[peer.ProviderID][targetPeer.ProviderID]
 			sampleN += 1
 		}
 	}
 	FFnew = FFnew / float64(sampleN)
+
+	return FFnew
+}
+
+func (p *provider) calculateFaultyFFSnew(peerList peers, allFFS allFFS) FFS {
+	FFSnew := FFS{}
+
+	for _, peer := range peerList {
+		if peer.ProviderID == p.id {
+			continue
+		}
+		FF := p.calculateFaultyFFnew(peer, peerList, allFFS)
+		FFSnew[peer.ProviderID] = FF
+	}
+
+	return FFSnew
+}
+
+func (p *provider) calculateFaultyFFnew(targetPeer peerInfo, peerList peers, allFFS allFFS) float64 {
+	// Calculate FFsum
+	selfTargetPeerFF := allFFS[p.id][targetPeer.ProviderID]
+	FFsum := selfTargetPeerFF // Init
+	for _, peer := range peerList {
+		if peer.ProviderID != targetPeer.ProviderID {
+			FFsum += allFFS[peer.ProviderID][targetPeer.ProviderID]
+		}
+	}
+
+	// Calculate FFmu (mean)
+	populationN := len(peerList)
+	FFmu := FFsum / float64(populationN)
+
+	// Calculate FFsigma (standard deviation)
+	dividend := math.Pow(selfTargetPeerFF-FFmu, 2)
+	divisor := populationN
+	for _, peer := range peerList {
+		if peer.ProviderID != targetPeer.ProviderID {
+			dividend += math.Pow(allFFS[peer.ProviderID][targetPeer.ProviderID]-FFmu, 2)
+		}
+	}
+	FFsigma := math.Sqrt(dividend / float64(divisor))
+
+	// Calculate FFnew
+	sampleN := 0
+	FFnew := 0.0
+	if math.Abs(calculateZScore(selfTargetPeerFF, FFmu, FFsigma)) <= p.params.Tau {
+		FFnew = selfTargetPeerFF
+		sampleN += 1
+	}
+	for _, peer := range peerList {
+		zScore := calculateZScore(allFFS[peer.ProviderID][targetPeer.ProviderID], FFmu, FFsigma)
+		if math.Abs(zScore) <= p.params.Tau {
+			FFnew += allFFS[peer.ProviderID][targetPeer.ProviderID]
+			sampleN += 1
+		}
+	}
+	FFnew = getRandomizedVal(FFnew, 1, -1, 1) / float64(sampleN)
 
 	return FFnew
 }
@@ -97,6 +155,37 @@ func (p *provider) calculateFFS(transaction transaction) map[string]float64 {
 	return FFS
 }
 
+func (p *provider) calculateFaultyFFS(transaction transaction) map[string]float64 {
+	customerQOS := transaction.customerQOS
+
+	// Calculate FF for other providers, except self
+	FFS := map[string]float64{}
+	for _, peer := range transaction.peerList {
+		peerScore, exists := p.peerScoreMatrix[peer.ProviderID]
+		if !exists {
+			fmt.Printf("failed to get peer score for provider %s\n", peer.ProviderID)
+			FFS[peer.ProviderID] = p.params.DefaultPeerFF
+			continue
+		}
+
+		fmt.Println("customerQOS:", customerQOS)
+		fmt.Println("peerScore:", peerScore)
+
+		PF := calculatePriceFittingness(customerQOS.PriceConsumer, peerScore.lastPrice, customerQOS.Epsilon)
+		SF := calculateSpeedFittingness(customerQOS.UplinkSpeedConsumer, peerScore.uplinkSpeed, customerQOS.Mu,
+			customerQOS.DownlinkSpeedConsumer, peerScore.downlinkSpeed, customerQOS.Delta)
+		FF := calculateFittingnessFactor(getRandomizedVal(PF, 0.5, 0.01, 0.99),
+			getRandomizedVal(SF, 0.5, 0.01, 0.99),
+			getRandomizedVal(peerScore.uptime, 0.5, 0.01, 0.99),
+			getRandomizedVal(peerScore.load, 0.5, 0.01, 0.99),
+			getRandomizedVal(peerScore.signalStrength, 0.5, 0.01, 0.99),
+			getRandomizedVal(peerScore.consumerFeedback, 0.5, 0.01, 0.99))
+		FFS[peer.ProviderID] = FF
+	}
+
+	return FFS
+}
+
 func (p *provider) checkVoteStatus(transactionID uuid.UUIDs) bool {
 	return false
 }
@@ -109,15 +198,16 @@ func calculateUptime(T_0 int64, T_new int64, k float64) float64 {
 }
 
 func calculateLoad(channelUtilizationRate int, k float64) float64 {
-	exponent := float64(channelUtilizationRate) / (k * 255)
+	exponent := float64(255-channelUtilizationRate) / (k * 255)
 	// TODO: remember to update the equation in the paper, the one below is
 	// correct :D, the higher the channel utilization the, lower the load
-	return 1 - (1 / (1 + math.Pow(math.E, exponent)))
+	return (1 / (1 + math.Pow(math.E, -exponent)))
 }
 
 func calculateSignalStrength(RSSI int, k float64) float64 {
+	// TODO: rememebre to upate equaiotn in paper, negative exponent
 	exponent := float64(RSSI) / (k * 255)
-	return 1 / (1 + math.Pow(math.E, exponent))
+	return 1 / (1 + math.Pow(math.E, -exponent))
 }
 
 func calculatePriceFittingness(priceConsumer float64, priceProvider float64, epsilon float64) float64 {
@@ -143,5 +233,16 @@ func calculateCustomerFeedback(old float64, new float64, gamma float64) float64 
 }
 
 func calculateChannelUtilizationRate(activeFlowCount int) int {
-	return int(math.Min(255, float64(25*activeFlowCount)))
+	return int(math.Min(255, float64(50*activeFlowCount)))
+}
+
+func getRandomizedVal(mean, stdDev, lowest, highest float64) float64 {
+	val := rand.NormFloat64()*stdDev + mean
+	if val < lowest {
+		return lowest
+	} else if val > highest {
+		return highest
+	} else {
+		return val
+	}
 }

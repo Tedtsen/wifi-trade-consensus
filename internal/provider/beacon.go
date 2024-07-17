@@ -31,6 +31,9 @@ func (p *provider) NewBeaconEmitter(beaconSettings beaconSettings) {
 			}
 
 			p.channelUtilizationRate = calculateChannelUtilizationRate(p.activeFlowCount)
+			if p.isFaulty {
+				p.channelUtilizationRate = int(getRandomizedVal(float64(p.channelUtilizationRate), 100, 1, 255))
+			}
 
 			payload := beaconPayload{
 				PayloadMeta: PayloadMeta{

@@ -2,7 +2,13 @@ package trigger
 
 import "math/rand"
 
-func getRandomizedVal(mean float64, stdDev float64) float64 {
+func getRandomizedVal(mean, stdDev, lowest, highest float64) float64 {
 	val := rand.NormFloat64()*stdDev + mean
-	return val
+	if val < lowest {
+		return lowest
+	} else if val > highest {
+		return highest
+	} else {
+		return val
+	}
 }

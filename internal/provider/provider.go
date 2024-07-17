@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -154,6 +155,7 @@ type provider struct {
 	defaultPeerConsumerFeedback float64
 	// Beacon attributes
 	channelUtilizationRate int // 0-255
+	isFaulty               bool
 }
 
 // func NewParamsFromConfig() (*params, error) {
@@ -245,6 +247,13 @@ func NewOptions(address string, price float64, uplinkSpeed float64, downlinkSpee
 }
 
 func New(opt options) provider {
+	val := os.Getenv("is_faulty")
+	isFaulty, err := strconv.ParseBool(val)
+	if err != nil {
+		fmt.Println("failed to parse environment variable is_faulty:", err)
+		isFaulty = false
+	}
+
 	provider := provider{
 		id:                   opt.ID,
 		address:              opt.Address,
@@ -262,6 +271,7 @@ func New(opt options) provider {
 		defaultPeerDownlinkSpeed:    opt.DefaultPeerDownlinkSpeed,
 		defaultPeerLastPrice:        opt.DefaultPeerLastPrice,
 		defaultPeerConsumerFeedback: opt.DefaultPeerConsumerFeedback,
+		isFaulty:                    isFaulty,
 	}
 
 	// Register cleanup for interrupt signal i.e. Ctrl^c
