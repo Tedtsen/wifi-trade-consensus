@@ -20,3 +20,6 @@ cmd/provider/config8.json
 cmd/provider/config9.json
 
 *.exe
+*.ipynb
+*.pdf
+*.svg
